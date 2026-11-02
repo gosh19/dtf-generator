@@ -4,13 +4,13 @@
 // ============================================================================
 
 const state = {
-  sourceMode: 'svg', // 'svg' | 'ai' | 'raster'
+  sourceMode: null, // null | 'svg' | 'ai' | 'raster'
   svgText: null,
   rasterImg: null,
-  fileName: 'ESTRADA (40 uni.)',
-  svgNaturalWidthMm: 19.134667,
-  svgNaturalHeightMm: 90.254667,
-  aspectRatio: 19.134667 / 90.254667,
+  fileName: '',
+  svgNaturalWidthMm: 0,
+  svgNaturalHeightMm: 0,
+  aspectRatio: 1,
   lockAspect: true,
   rotate90: false,
 
@@ -26,8 +26,8 @@ const state = {
 
   // Configuración de salida
   dpi: 300,
-  widthMm: 19.13,
-  heightMm: 90.25,
+  widthMm: 0,
+  heightMm: 0,
   paddingPx: 0,
   clampToAlphaBBox: true,
 
@@ -60,10 +60,10 @@ const state = {
   zoom: 1,
 
   // Buffers procesados del diseño actual
-  widthPx: 226,
-  heightPx: 1066,
-  rawWidthPx: 226,
-  rawHeightPx: 1066,
+  widthPx: 0,
+  heightPx: 0,
+  rawWidthPx: 0,
+  rawHeightPx: 0,
   rawRgbaBuffer: null,
   rgbaBuffer: null,
   cmykBuffer: null,
@@ -77,7 +77,121 @@ const state = {
 window.addEventListener('DOMContentLoaded', () => {
   bindUIEvents();
   renderSpotChannelsList();
+  updateUIState();
 });
+
+function updateUIState() {
+  const hasFile = Boolean(state.sourceMode && (state.svgText || state.aiDoc || state.rasterImg));
+
+  // 1. Header
+  const exportFileNameInput = document.getElementById('exportFileNameInput');
+  const btnExportPdf = document.getElementById('btnExportPdf');
+  const docDimensionsBadge = document.getElementById('docDimensionsBadge');
+  if (exportFileNameInput) {
+    exportFileNameInput.disabled = !hasFile;
+    if (!hasFile) exportFileNameInput.value = '';
+  }
+  if (btnExportPdf) {
+    btnExportPdf.disabled = !hasFile;
+  }
+  if (docDimensionsBadge) {
+    if (!hasFile) {
+      docDimensionsBadge.textContent = 'Sin archivo cargado';
+      docDimensionsBadge.style.opacity = '0.5';
+    } else {
+      docDimensionsBadge.style.opacity = '1';
+    }
+  }
+
+  // 2. Info de archivo en card 1
+  const loadedFileName = document.getElementById('loadedFileName');
+  const fileTypeBadge = document.getElementById('fileTypeBadge');
+  if (loadedFileName && !hasFile) {
+    loadedFileName.textContent = 'Ninguno';
+    loadedFileName.title = 'Sin archivo cargado';
+  }
+  if (fileTypeBadge && !hasFile) {
+    fileTypeBadge.textContent = '-';
+  }
+
+  // 3. Card 2: Tamaño y orientación
+  const btnRotate90 = document.getElementById('btnRotate90');
+  const widthMmInput = document.getElementById('widthMmInput');
+  const heightMmInput = document.getElementById('heightMmInput');
+  const dpiInput = document.getElementById('dpiInput');
+  const paddingPxInput = document.getElementById('paddingPxInput');
+  const lockAspectChk = document.getElementById('lockAspectChk');
+  const clampBBoxChk = document.getElementById('clampBBoxChk');
+
+  if (btnRotate90) btnRotate90.disabled = !hasFile;
+  if (widthMmInput) {
+    widthMmInput.disabled = !hasFile;
+    if (!hasFile) widthMmInput.value = '';
+  }
+  if (heightMmInput) {
+    heightMmInput.disabled = !hasFile;
+    if (!hasFile) heightMmInput.value = '';
+  }
+  if (dpiInput) dpiInput.disabled = !hasFile;
+  if (paddingPxInput) paddingPxInput.disabled = !hasFile;
+  if (lockAspectChk) lockAspectChk.disabled = !hasFile;
+  if (clampBBoxChk) clampBBoxChk.disabled = !hasFile;
+
+  // 4. Card 3: Sacar fondo
+  const btnAutoRemoveBg = document.getElementById('btnAutoRemoveBg');
+  const btnResetBg = document.getElementById('btnResetBg');
+  const stripSvgBgRectChk = document.getElementById('stripSvgBgRectChk');
+  const ignoreBgChk = document.getElementById('ignoreBgChk');
+  const bgRemovalModeSelect = document.getElementById('bgRemovalModeSelect');
+  const bgToleranceInput = document.getElementById('bgToleranceInput');
+  const bgChokePxInput = document.getElementById('bgChokePxInput');
+  const bgDecontaminateChk = document.getElementById('bgDecontaminateChk');
+  const autoTrimBgChk = document.getElementById('autoTrimBgChk');
+  const bgStatusBadge = document.getElementById('bgStatusBadge');
+
+  if (btnAutoRemoveBg) btnAutoRemoveBg.disabled = !hasFile;
+  if (btnResetBg) btnResetBg.disabled = !hasFile;
+  if (stripSvgBgRectChk) stripSvgBgRectChk.disabled = !hasFile;
+  if (ignoreBgChk) ignoreBgChk.disabled = !hasFile;
+  if (bgRemovalModeSelect) bgRemovalModeSelect.disabled = !hasFile;
+  if (bgToleranceInput) bgToleranceInput.disabled = !hasFile;
+  if (bgChokePxInput) bgChokePxInput.disabled = !hasFile;
+  if (bgDecontaminateChk) bgDecontaminateChk.disabled = !hasFile;
+  if (autoTrimBgChk) autoTrimBgChk.disabled = !hasFile;
+  if (bgStatusBadge && !hasFile) {
+    bgStatusBadge.textContent = '-';
+  }
+
+  // 5. Toolbar de Vista previa
+  const btnQuickRemoveBg = document.getElementById('btnQuickRemoveBg');
+  const btnQuickEyedropper = document.getElementById('btnQuickEyedropper');
+  const previewBackdropSelect = document.getElementById('previewBackdropSelect');
+  const btnZoomOut = document.getElementById('btnZoomOut');
+  const btnZoomIn = document.getElementById('btnZoomIn');
+  const btnZoomFit = document.getElementById('btnZoomFit');
+
+  if (btnQuickRemoveBg) btnQuickRemoveBg.disabled = !hasFile;
+  if (btnQuickEyedropper) btnQuickEyedropper.disabled = !hasFile;
+  if (previewBackdropSelect) previewBackdropSelect.disabled = !hasFile;
+  if (btnZoomOut) btnZoomOut.disabled = !hasFile;
+  if (btnZoomIn) btnZoomIn.disabled = !hasFile;
+  if (btnZoomFit) btnZoomFit.disabled = !hasFile;
+
+  // 6. Viewport y canvas
+  const emptyPlaceholder = document.getElementById('emptyViewportPlaceholder');
+  const canvasWrapper = document.getElementById('canvasWrapper');
+  const pixelInspector = document.getElementById('pixelInspector');
+
+  if (emptyPlaceholder) {
+    emptyPlaceholder.style.display = hasFile ? 'none' : 'flex';
+  }
+  if (canvasWrapper) {
+    canvasWrapper.style.display = hasFile ? 'flex' : 'none';
+  }
+  if (pixelInspector && !hasFile) {
+    pixelInspector.textContent = 'Sin archivo cargado';
+  }
+}
 
 function showLoading(title, sub) {
   document.getElementById('loadingTitle').textContent = title || 'Procesando...';
@@ -111,6 +225,22 @@ function bindUIEvents() {
       handleInputFile(e.target.files[0]);
     }
   });
+
+  const canvasViewport = document.getElementById('canvasViewport');
+  if (canvasViewport) {
+    canvasViewport.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      canvasViewport.classList.add('dragover');
+    });
+    canvasViewport.addEventListener('dragleave', () => canvasViewport.classList.remove('dragover'));
+    canvasViewport.addEventListener('drop', (e) => {
+      e.preventDefault();
+      canvasViewport.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleInputFile(e.dataTransfer.files[0]);
+      }
+    });
+  }
 
   // Controles de Separador .AI
   const aiIgnoreLargeBgChk = document.getElementById('aiIgnoreLargeBgChk');
@@ -181,6 +311,7 @@ function bindUIEvents() {
 
   // Rotar 90°
   document.getElementById('btnRotate90').addEventListener('click', () => {
+    if (!state.sourceMode) return;
     state.rotate90 = !state.rotate90;
     const tmp = state.widthMm;
     state.widthMm = state.heightMm;
@@ -201,13 +332,15 @@ function bindUIEvents() {
   const clampBBoxChk = document.getElementById('clampBBoxChk');
 
   dpiInput.addEventListener('change', () => {
+    if (!state.sourceMode) return;
     state.dpi = Math.max(36, Math.min(2400, parseInt(dpiInput.value, 10) || 300));
     dpiInput.value = state.dpi;
     processCurrentDesign();
   });
 
   widthMmInput.addEventListener('change', () => {
-    const val = Math.max(1, parseFloat(widthMmInput.value) || 19.13);
+    if (!state.sourceMode) return;
+    const val = Math.max(1, parseFloat(widthMmInput.value) || state.widthMm || 10);
     state.widthMm = val;
     if (state.lockAspect && state.aspectRatio > 0) {
       state.heightMm = +(val / state.aspectRatio).toFixed(2);
@@ -217,7 +350,8 @@ function bindUIEvents() {
   });
 
   heightMmInput.addEventListener('change', () => {
-    const val = Math.max(1, parseFloat(heightMmInput.value) || 90.25);
+    if (!state.sourceMode) return;
+    const val = Math.max(1, parseFloat(heightMmInput.value) || state.heightMm || 10);
     state.heightMm = val;
     if (state.lockAspect && state.aspectRatio > 0) {
       state.widthMm = +(val * state.aspectRatio).toFixed(2);
@@ -517,6 +651,14 @@ function bindUIEvents() {
       document.getElementById('pixelInspector').textContent =
         `X:${x} Y:${y} | CMYK(${c}%,${m}%,${yv}%,${k}%) Opacidad:${a}% | ${spotsInfo}`;
     }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    const el = document.getElementById('pixelInspector');
+    if (!el) return;
+    el.textContent = state.sourceMode
+      ? 'Pasa el mouse sobre la imagen para inspeccionar CMYK y tintas Spot'
+      : 'Sin archivo cargado';
   });
 
   window.addEventListener('mouseup', () => {
@@ -1030,6 +1172,8 @@ function loadSvgString(svgText, fileName) {
 // Procesamiento del Diseño Activo (.AI, .SVG o Imagen) a CMYK + Alfa + Spot
 // ============================================================================
 function processCurrentDesign(fitOnFinish = false) {
+  updateUIState();
+  if (!state.sourceMode) return;
   syncBgRemovalUI();
 
   if (state.sourceMode === 'ai' && state.aiDoc) {
@@ -1194,13 +1338,21 @@ function processCurrentDesign(fitOnFinish = false) {
 }
 
 function updateDimensionsHeaderBadge() {
+  const badge = document.getElementById('docDimensionsBadge');
+  if (!badge) return;
+  if (!state.sourceMode || !state.widthPx || !state.heightPx) {
+    badge.textContent = 'Sin archivo cargado';
+    badge.style.opacity = '0.5';
+    return;
+  }
+  badge.style.opacity = '1';
   const totalW = state.widthPx;
   const totalH = state.heightPx;
   const ptW = ((totalW / state.dpi) * 72).toFixed(2);
   const ptH = ((totalH / state.dpi) * 72).toFixed(2);
   const mmW = ((totalW / state.dpi) * 25.4).toFixed(2);
   const mmH = ((totalH / state.dpi) * 25.4).toFixed(2);
-  document.getElementById('docDimensionsBadge').textContent =
+  badge.textContent =
     `${totalW} × ${totalH} px | ${ptW} × ${ptH} pt | ${mmW} × ${mmH} mm @ ${state.dpi} PPP`;
 }
 
@@ -2003,6 +2155,7 @@ function renderSpotChannelsList() {
 function renderViewTabs() {
   const tabsEl = document.getElementById('viewTabs');
   tabsEl.innerHTML = '';
+  if (!state.sourceMode) return;
 
   const tabs = [];
   if (state.sourceMode === 'ai' && state.aiDoc) {

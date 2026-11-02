@@ -26,15 +26,15 @@
     </div>
 
     <div class="header-actions">
-      <span id="docDimensionsBadge" class="badge header-dim-badge">226 × 1066 px | 54.24 × 255.84 pt | 19.13 × 90.25 mm @ 300 PPP</span>
+      <span id="docDimensionsBadge" class="badge header-dim-badge" style="opacity:0.5;">Sin archivo cargado</span>
 
       <div class="pdf-name-field">
         <span class="pdf-name-label">Nombre:</span>
-        <input id="exportFileNameInput" type="text" value="ESTRADA (40 uni.)" placeholder="Nombre del archivo" />
+        <input id="exportFileNameInput" type="text" value="" placeholder="Nombre del archivo" disabled />
         <span class="pdf-name-ext">.pdf</span>
       </div>
 
-      <button id="btnExportPdf" class="btn btn-success btn-export-header">⬇ Descargar PDF</button>
+      <button id="btnExportPdf" class="btn btn-success btn-export-header" disabled>⬇ Descargar PDF</button>
     </div>
   </header>
 
@@ -45,7 +45,7 @@
       <section class="card">
         <div class="card-header">
           <div class="card-title">Primer paso: cargar el archivo</div>
-          <span id="fileTypeBadge" class="badge">SVG</span>
+          <span id="fileTypeBadge" class="badge">-</span>
         </div>
         <div id="dropzone" class="dropzone">
           <svg class="dropzone-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -61,7 +61,7 @@
         </div>
         <div class="file-info-bar">
           <span class="file-info-label">Archivo activo:</span>
-          <strong id="loadedFileName" class="file-info-name" title="ESTRADA (40 uni.).svg">ESTRADA (40 uni.).svg</strong>
+          <strong id="loadedFileName" class="file-info-name" title="Sin archivo cargado">Ninguno</strong>
         </div>
       </section>
 
@@ -115,36 +115,36 @@
       <section class="card">
         <div class="card-header">
           <div class="card-title">2. Tamaño y Orientación</div>
-          <button id="btnRotate90" class="btn btn-sm" title="Rota el diseño 90° (ej. vertical como ESTRADA)">🔄 Rotar 90°</button>
+          <button id="btnRotate90" class="btn btn-sm" title="Rota el diseño 90°" disabled>🔄 Rotar 90°</button>
         </div>
         <div class="form-grid-3">
           <div class="field">
             <label for="widthMmInput">Ancho (mm)</label>
-            <input id="widthMmInput" type="number" step="0.01" min="1" value="19.13" />
+            <input id="widthMmInput" type="number" step="0.01" min="1" value="" placeholder="0.00" disabled />
           </div>
           <div class="field">
             <label for="heightMmInput">Alto (mm)</label>
-            <input id="heightMmInput" type="number" step="0.01" min="1" value="90.25" />
+            <input id="heightMmInput" type="number" step="0.01" min="1" value="" placeholder="0.00" disabled />
           </div>
           <div class="field">
             <label for="dpiInput">Resolución (PPP)</label>
-            <input id="dpiInput" type="number" step="10" min="72" max="2400" value="300" />
+            <input id="dpiInput" type="number" step="10" min="72" max="2400" value="300" disabled />
           </div>
         </div>
         <div class="form-grid" style="margin-top:8px;">
           <div class="field">
             <label for="paddingPxInput">Margen extra (px)</label>
-            <input id="paddingPxInput" type="number" step="1" min="0" max="100" value="0" title="Agrega margen transparente alrededor del diseño si llega al borde" />
+            <input id="paddingPxInput" type="number" step="1" min="0" max="100" value="0" disabled title="Agrega margen transparente alrededor del diseño si llega al borde" />
           </div>
           <div class="field" style="justify-content:flex-end;">
             <label class="checkbox-row">
-              <input id="lockAspectChk" type="checkbox" checked />
+              <input id="lockAspectChk" type="checkbox" checked disabled />
               <span>Mantener proporción</span>
             </label>
           </div>
         </div>
-        <label class="checkbox-row" title="Clampea la contracción y expansión al cuadro delimitador del alfa igual que Photoshop en el ejemplo">
-          <input id="clampBBoxChk" type="checkbox" checked />
+        <label class="checkbox-row" title="Clampea la contracción y expansión al cuadro delimitador del alfa igual que Photoshop">
+          <input id="clampBBoxChk" type="checkbox" checked disabled />
           <span>Recorte de bordes exacto a Photoshop (BBox Alfa)</span>
         </label>
       </section>
@@ -154,26 +154,26 @@
         <summary class="card-header dropdown-summary">
           <div class="card-title">3. Sacar Fondo / Transparencia</div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <span id="bgStatusBadge" class="badge">Original</span>
+            <span id="bgStatusBadge" class="badge">-</span>
             <span class="dropdown-chevron">▾</span>
           </div>
         </summary>
         <div class="dropdown-body">
           <div style="display:flex; gap:6px; margin-bottom:8px;">
-            <button id="btnAutoRemoveBg" class="btn btn-sm btn-primary" style="flex:1;" title="Detecta y elimina automáticamente el fondo del diseño (placa vectorial y/o color de borde)">
+            <button id="btnAutoRemoveBg" class="btn btn-sm btn-primary" style="flex:1;" disabled title="Detecta y elimina automáticamente el fondo del diseño (placa vectorial y/o color de borde)">
               ✨ Sacar Fondo Automático
             </button>
-            <button id="btnResetBg" class="btn btn-sm" title="Restaurar el fondo original sin recortes de color">
+            <button id="btnResetBg" class="btn btn-sm" disabled title="Restaurar el fondo original sin recortes de color">
               ↺ Restaurar
             </button>
           </div>
 
           <label class="checkbox-row">
-            <input id="stripSvgBgRectChk" type="checkbox" />
+            <input id="stripSvgBgRectChk" type="checkbox" disabled />
             <span>Quitar placa/rectángulo de fondo vectorial (.AI / .SVG)</span>
           </label>
           <label class="checkbox-row">
-            <input id="ignoreBgChk" type="checkbox" />
+            <input id="ignoreBgChk" type="checkbox" disabled />
             <span>Eliminar fondo por color (hacer transparente)</span>
           </label>
 
@@ -264,31 +264,42 @@
       <div class="preview-toolbar">
         <div id="viewTabs" class="view-tabs"></div>
         <div class="zoom-controls">
-          <button id="btnQuickRemoveBg" class="btn btn-sm btn-bg-action" title="Detecta y quita el fondo con 1 clic (o restaura si ya está activo)">✨ Sacar Fondo</button>
-          <button id="btnQuickEyedropper" class="btn btn-sm" title="Haz clic sobre cualquier color de fondo en la imagen para borrarlo">💧 Borrar Color</button>
-          <select id="previewBackdropSelect" class="backdrop-select" title="Color de mesa/prenda en la vista previa (no afecta al PDF)">
+          <button id="btnQuickRemoveBg" class="btn btn-sm btn-bg-action" disabled title="Detecta y quita el fondo con 1 clic (o restaura si ya está activo)">✨ Sacar Fondo</button>
+          <button id="btnQuickEyedropper" class="btn btn-sm" disabled title="Haz clic sobre cualquier color de fondo en la imagen para borrarlo">💧 Borrar Color</button>
+          <select id="previewBackdropSelect" class="backdrop-select" disabled title="Color de mesa/prenda en la vista previa (no afecta al PDF)">
             <option value="checker">🏁 Fondo: Transparente</option>
             <option value="dark">⬛ Prenda Negra</option>
             <option value="light">⬜ Prenda Blanca</option>
             <option value="contrast">🟦 Contraste</option>
           </select>
           <button id="btnSpotModeToggle" class="btn btn-sm" style="display:none;">Vista Canal: Placa B/N (Photoshop)</button>
-          <button id="btnZoomOut" class="btn btn-sm">−</button>
+          <button id="btnZoomOut" class="btn btn-sm" disabled>−</button>
           <span id="zoomLabel" style="min-width:48px; text-align:center; font-size:12px; font-weight:600;">100%</span>
-          <button id="btnZoomIn" class="btn btn-sm">+</button>
-          <button id="btnZoomFit" class="btn btn-sm">Ajustar</button>
+          <button id="btnZoomIn" class="btn btn-sm" disabled>+</button>
+          <button id="btnZoomFit" class="btn btn-sm" disabled>Ajustar</button>
         </div>
       </div>
 
       <div id="canvasViewport" class="canvas-viewport">
-        <div class="canvas-wrapper">
-          <canvas id="previewCanvas" width="226" height="1066"></canvas>
+        <div id="emptyViewportPlaceholder" class="empty-viewport-placeholder">
+          <div class="empty-viewport-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.35;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="empty-viewport-title">Ningún archivo cargado</div>
+          <div class="empty-viewport-sub">Arrastra tu archivo <strong>.AI</strong>, <strong>.SVG</strong> o <strong>.PNG</strong> aquí para comenzar.</div>
+        </div>
+        <div id="canvasWrapper" class="canvas-wrapper" style="display:none;">
+          <canvas id="previewCanvas" width="0" height="0"></canvas>
         </div>
       </div>
 
       <footer class="status-footer">
         <div>Modo PDF: <strong>CMYK + Separation Spot Channels (/op true) + AdobePhotoshop PieceInfo</strong></div>
-        <div id="pixelInspector" class="pixel-inspector">Pasa el mouse sobre la imagen para inspeccionar CMYK y tintas Spot</div>
+        <div id="pixelInspector" class="pixel-inspector">Sin archivo cargado</div>
       </footer>
     </section>
   </main>

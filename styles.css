@@ -226,6 +226,18 @@ body {
   cursor: not-allowed;
 }
 
+input:disabled,
+select:disabled,
+button:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+.checkbox-row input:disabled + span {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -955,4 +967,42 @@ select:focus {
   background: rgba(16, 185, 129, 0.2);
   color: #6ee7b7;
   border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.empty-viewport-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  user-select: none;
+  max-width: 440px;
+  margin: auto;
+}
+
+.empty-viewport-icon {
+  margin-bottom: 2px;
+}
+
+.empty-viewport-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.empty-viewport-sub {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.empty-viewport-sub strong {
+  color: #94a3b8;
+}
+
+.canvas-viewport.dragover {
+  border-color: var(--accent) !important;
+  background: rgba(59, 130, 246, 0.08) !important;
 }
