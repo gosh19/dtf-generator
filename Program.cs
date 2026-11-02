@@ -227,9 +227,24 @@ namespace GeneradorDTF
                 menu.MenuItems.Add("-");
                 menu.MenuItems.Add("Cerrar", (s, e) => Application.Exit());
 
+                Icon appIcon = null;
+                string icoPath = Path.Combine(rootDir, "app.ico");
+                if (File.Exists(icoPath))
+                {
+                    try { appIcon = new Icon(icoPath); } catch { }
+                }
+                if (appIcon == null)
+                {
+                    try { appIcon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { }
+                }
+                if (appIcon == null)
+                {
+                    appIcon = SystemIcons.Application;
+                }
+
                 trayIcon = new NotifyIcon
                 {
-                    Icon = SystemIcons.Application,
+                    Icon = appIcon,
                     ContextMenu = menu,
                     Text = "Generador DTF",
                     Visible = true
