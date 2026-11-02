@@ -12,8 +12,9 @@ namespace GeneradorDTF
 {
     static class Program
     {
+        private const int PreferredPort = 41789;
         private static HttpListener listener;
-        private static int port;
+        private static int port = PreferredPort;
         private static string rootDir;
         private static NotifyIcon trayIcon;
         private static Process browserProc;
@@ -26,7 +27,12 @@ namespace GeneradorDTF
             singleInstanceMutex = new Mutex(true, "GeneradorDTF_SingleInstance_Mutex", out createdNew);
             if (!createdNew)
             {
-                // Otra instancia ya está ejecutándose
+                // Otra instancia ya está ejecutándose: abrir ventana en el navegador y salir
+                try
+                {
+                    Process.Start("http://127.0.0.1:" + PreferredPort + "/index.html");
+                }
+                catch { }
                 return;
             }
 
@@ -44,10 +50,35 @@ namespace GeneradorDTF
         {
             try
             {
-                TcpListener tcp = new TcpListener(IPAddress.Loopback, 0);
-                tcp.Start();
-                port = ((IPEndPoint)tcp.LocalEndpoint).Port;
-                tcp.Stop();
+                // Intentar usar siempre el puerto preferido fijo para mantener origen y sesión estables
+                port = PreferredPort;
+                bool portOk = false;
+
+                try
+                {
+                    TcpListener tcpTest = new TcpListener(IPAddress.Loopback, port);
+                    tcpTest.Start();
+                    tcpTest.Stop();
+                    portOk = true;
+                }
+                catch
+                {
+                    // Si el puerto fijo estuviese en uso, buscar uno libre dinámico
+                    try
+                    {
+                        TcpListener tcpDynamic = new TcpListener(IPAddress.Loopback, 0);
+                        tcpDynamic.Start();
+                        port = ((IPEndPoint)tcpDynamic.LocalEndpoint).Port;
+                        tcpDynamic.Stop();
+                        portOk = true;
+                    }
+                    catch { }
+                }
+
+                if (!portOk)
+                {
+                    port = PreferredPort;
+                }
 
                 listener = new HttpListener();
                 listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
@@ -104,6 +135,10 @@ namespace GeneradorDTF
                 if (!File.Exists(filePath))
                 {
                     context.Response.StatusCode = 404;
+                    byte[] notFoundBytes = System.Text.Encoding.UTF8.GetBytes("<!DOCTYPE html><html><body><h1>404 No Encontrado</h1></body></html>");
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    context.Response.ContentLength64 = notFoundBytes.Length;
+                    context.Response.OutputStream.Write(notFoundBytes, 0, notFoundBytes.Length);
                     context.Response.Close();
                     return;
                 }
@@ -113,6 +148,7 @@ namespace GeneradorDTF
                 {
                     case ".html":
                         context.Response.ContentType = "text/html; charset=utf-8";
+                        context.Response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
                         break;
                     case ".js":
                         context.Response.ContentType = "application/javascript; charset=utf-8";
@@ -186,10 +222,21 @@ namespace GeneradorDTF
                 try
                 {
                     string profileDir = Path.Combine(Path.GetTempPath(), "DTFGenerator_Profile");
+                    CleanProfileSession(profileDir);
+
+                    string args = "--user-data-dir=\"" + profileDir + "\" " +
+                                  "--app=" + url + " " +
+                                  "--window-size=1400,900 " +
+                                  "--no-first-run " +
+                                  "--no-default-browser-check " +
+                                  "--disable-session-crashed-bubble " +
+                                  "--disable-restore-session-state " +
+                                  "--disable-background-mode";
+
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = browserPath,
-                        Arguments = "--user-data-dir=\"" + profileDir + "\" --app=" + url + " --window-size=1400,900",
+                        Arguments = args,
                         UseShellExecute = false
                     };
 
@@ -216,6 +263,48 @@ namespace GeneradorDTF
             {
                 MessageBox.Show("No se pudo abrir el navegador: " + ex.Message, "Generador DTF", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private static void CleanProfileSession(string profileDir)
+        {
+            try
+            {
+                string sessionsDir = Path.Combine(profileDir, "Default", "Sessions");
+                if (Directory.Exists(sessionsDir))
+                {
+                    string[] files = Directory.GetFiles(sessionsDir);
+                    foreach (string f in files)
+                    {
+                        try { File.Delete(f); } catch { }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                string prefsPath = Path.Combine(profileDir, "Default", "Preferences");
+                if (File.Exists(prefsPath))
+                {
+                    string content = File.ReadAllText(prefsPath);
+                    bool changed = false;
+                    if (content.Contains("\"exit_type\":\"Crashed\""))
+                    {
+                        content = content.Replace("\"exit_type\":\"Crashed\"", "\"exit_type\":\"Normal\"");
+                        changed = true;
+                    }
+                    if (content.Contains("\"exited_cleanly\":false"))
+                    {
+                        content = content.Replace("\"exited_cleanly\":false", "\"exited_cleanly\":true");
+                        changed = true;
+                    }
+                    if (changed)
+                    {
+                        File.WriteAllText(prefsPath, content);
+                    }
+                }
+            }
+            catch { }
         }
 
         private static void SetupTrayIcon()
