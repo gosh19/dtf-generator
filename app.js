@@ -77,7 +77,6 @@ const state = {
 window.addEventListener('DOMContentLoaded', () => {
   bindUIEvents();
   renderSpotChannelsList();
-  loadSampleEstradaSvg();
 });
 
 function showLoading(title, sub) {
@@ -112,29 +111,6 @@ function bindUIEvents() {
       handleInputFile(e.target.files[0]);
     }
   });
-
-  const btnLoadSample = document.getElementById('btnLoadSample');
-  if (btnLoadSample) {
-    btnLoadSample.addEventListener('click', () => {
-      loadSampleEstradaSvg();
-    });
-  }
-
-  const btnLoadSampleAi = document.getElementById('btnLoadSampleAi');
-  if (btnLoadSampleAi) {
-    btnLoadSampleAi.addEventListener('click', async () => {
-      try {
-        showLoading('Cargando ejemplo_sura_garage.ai...', 'Descomprimiendo vectores e imágenes de la Zona Gris');
-        const resp = await fetch('ejemplo_sura_garage.ai');
-        if (!resp.ok) throw new Error('Usa el botón de arrastrar archivo si abriste el HTML sin servidor.');
-        const ab = await resp.arrayBuffer();
-        await loadAiArrayBuffer(ab, 'Prod SURA, GARAGE 29, HEXYCARS.ai');
-      } catch (err) {
-        hideLoading();
-        alert('Para cargar el .AI directamente cuando abres index.html sin GeneradorDTF.exe, arrastra el archivo "Prod SURA, GARAGE 29, HEXYCARS.ai" al recuadro 1.');
-      }
-    });
-  }
 
   // Controles de Separador .AI
   const aiIgnoreLargeBgChk = document.getElementById('aiIgnoreLargeBgChk');
@@ -976,16 +952,6 @@ function selectAiDesign(idx, switchToComposite = true) {
 // ============================================================================
 // Carga y Parseo de SVG
 // ============================================================================
-function loadSampleEstradaSvg() {
-  if (window.DTF_SAMPLE_SVG_B64) {
-    const bin = atob(window.DTF_SAMPLE_SVG_B64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const text = new TextDecoder('utf-8').decode(bytes);
-    loadSvgString(text, 'ESTRADA (40 uni.).svg');
-  }
-}
-
 function parseSvgUnitToMm(valStr) {
   if (!valStr) return null;
   const m = String(valStr).trim().match(/^([0-9.]+)\s*(mm|cm|in|pt|pc|px)?$/i);
