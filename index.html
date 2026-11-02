@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DTF Generator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Overlay de carga para descompresión de archivos .AI grandes -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-box">
+      <div class="loading-spinner"></div>
+      <div id="loadingTitle" style="font-size:15px; font-weight:700; margin-bottom:6px;">Procesando archivo...</div>
+      <div id="loadingSub" style="font-size:12px; color:#94a3b8;">Descomprimiendo bloques de la zona gris (.AI)</div>
+    </div>
+  </div>
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">DTF</div>
+      <div class="brand-title">
+        <h1>DTF Generator</h1>
+        <span class="brand-tag">.AI, .SVG &amp; .PNG &rarr; Spot Channels PDF</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span id="docDimensionsBadge" class="badge header-dim-badge">226 × 1066 px | 54.24 × 255.84 pt | 19.13 × 90.25 mm @ 300 PPP</span>
+
+      <div class="pdf-name-field">
+        <span class="pdf-name-label">Nombre:</span>
+        <input id="exportFileNameInput" type="text" value="ESTRADA (40 uni.)" placeholder="Nombre del archivo" />
+        <span class="pdf-name-ext">.pdf</span>
+      </div>
+
+      <button id="btnExportPdf" class="btn btn-success btn-export-header">⬇ Descargar PDF</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- Panel Lateral de Configuración -->
+    <aside class="sidebar">
+      <!-- 1. Entrada .AI o .SVG -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">Primer paso: cargar el archivo</div>
+          <span id="fileTypeBadge" class="badge">SVG</span>
+        </div>
+        <div id="dropzone" class="dropzone">
+          <svg class="dropzone-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="dropzone-title">Arrastra tu archivo (.AI, .SVG o .PNG)</div>
+          <input id="fileInput" type="file" accept=".ai,.svg,.png,image/png" style="display:none;" />
+        </div>
+        <div id="fileErrorBanner" class="file-error-banner">
+          ⚠️ Formato inválido. Solo se permiten archivos <strong>.AI</strong>, <strong>.SVG</strong> o <strong>.PNG</strong>.
+        </div>
+        <div class="file-info-bar">
+          <span class="file-info-label">Archivo activo:</span>
+          <strong id="loadedFileName" class="file-info-name" title="ESTRADA (40 uni.).svg">ESTRADA (40 uni.).svg</strong>
+        </div>
+      </section>
+
+      <!-- Panel exclusivo cuando se carga un archivo .AI con múltiples diseños en la zona gris -->
+      <section id="aiSeparatorCard" class="card" style="display:none; border-color:#3b82f6;">
+        <div class="card-header">
+          <div class="card-title" style="color:#93c5fd;">✂️ Diseños en Zona Gris (.AI)</div>
+          <span id="aiDesignCountBadge" class="badge">0 diseños</span>
+        </div>
+
+        <label class="checkbox-row" style="margin-top:0;">
+          <input id="aiIgnoreLargeBgChk" type="checkbox" checked />
+          <span>Ignorar placas/hojas de fondo grandes (&gt;100 mm)</span>
+        </label>
+
+        <div class="field" style="margin-top:8px;">
+          <label>Distancia para agrupar partes sueltas: <strong id="aiMergeDistVal">2.0</strong> mm</label>
+          <input id="aiMergeDistInput" type="range" min="0" max="25" step="0.5" value="2.0" />
+        </div>
+
+        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+          <button id="btnViewPasteboard" class="btn btn-sm btn-active">🗺️ Ver Mapa Zona Gris</button>
+          <button id="btnManualCropMode" class="btn btn-sm" title="Dibuja un recuadro con el mouse sobre el Mapa de la Zona Gris para crear un recorte">
+            ➕ Recortar con Mouse
+          </button>
+        </div>
+
+        <div id="manualCropBanner" class="eyebanner" style="margin-top:8px;">
+          Arrastra con el mouse sobre el Mapa de la Zona Gris para encerrar un diseño y separarlo.
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px; padding:6px 8px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:7px;">
+          <label style="display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; cursor:pointer; user-select:none;">
+            <input id="chkMasterSelectAi" type="checkbox" checked style="width:16px; height:16px; accent-color:#10b981; cursor:pointer;" />
+            <span id="lblSelectedAiCount">Seleccionar todos</span>
+          </label>
+          <div style="display:flex; gap:4px;">
+            <button id="btnSelectAllAi" class="btn btn-sm" style="padding:3px 7px; font-size:11px;">Todos</button>
+            <button id="btnDeselectAllAi" class="btn btn-sm" style="padding:3px 7px; font-size:11px;">Ninguno</button>
+          </div>
+        </div>
+
+        <div id="aiDesignsList" class="ai-designs-list"></div>
+
+        <button id="btnExportBatchAi" class="btn btn-success" style="width:100%; margin-top:10px; font-size:13px;">
+          ⬇ Exportar Seleccionados (Lote PDF)
+        </button>
+      </section>
+
+      <!-- 2. Tamaño y Resolución -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">2. Tamaño y Orientación</div>
+          <button id="btnRotate90" class="btn btn-sm" title="Rota el diseño 90° (ej. vertical como ESTRADA)">🔄 Rotar 90°</button>
+        </div>
+        <div class="form-grid-3">
+          <div class="field">
+            <label for="widthMmInput">Ancho (mm)</label>
+            <input id="widthMmInput" type="number" step="0.01" min="1" value="19.13" />
+          </div>
+          <div class="field">
+            <label for="heightMmInput">Alto (mm)</label>
+            <input id="heightMmInput" type="number" step="0.01" min="1" value="90.25" />
+          </div>
+          <div class="field">
+            <label for="dpiInput">Resolución (PPP)</label>
+            <input id="dpiInput" type="number" step="10" min="72" max="2400" value="300" />
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:8px;">
+          <div class="field">
+            <label for="paddingPxInput">Margen extra (px)</label>
+            <input id="paddingPxInput" type="number" step="1" min="0" max="100" value="0" title="Agrega margen transparente alrededor del diseño si llega al borde" />
+          </div>
+          <div class="field" style="justify-content:flex-end;">
+            <label class="checkbox-row">
+              <input id="lockAspectChk" type="checkbox" checked />
+              <span>Mantener proporción</span>
+            </label>
+          </div>
+        </div>
+        <label class="checkbox-row" title="Clampea la contracción y expansión al cuadro delimitador del alfa igual que Photoshop en el ejemplo">
+          <input id="clampBBoxChk" type="checkbox" checked />
+          <span>Recorte de bordes exacto a Photoshop (BBox Alfa)</span>
+        </label>
+      </section>
+
+      <!-- 3. Fondo y Transparencia (Dropdown) -->
+      <details id="bgCardDetails" class="card card-dropdown">
+        <summary class="card-header dropdown-summary">
+          <div class="card-title">3. Sacar Fondo / Transparencia</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="bgStatusBadge" class="badge">Original</span>
+            <span class="dropdown-chevron">▾</span>
+          </div>
+        </summary>
+        <div class="dropdown-body">
+          <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <button id="btnAutoRemoveBg" class="btn btn-sm btn-primary" style="flex:1;" title="Detecta y elimina automáticamente el fondo del diseño (placa vectorial y/o color de borde)">
+              ✨ Sacar Fondo Automático
+            </button>
+            <button id="btnResetBg" class="btn btn-sm" title="Restaurar el fondo original sin recortes de color">
+              ↺ Restaurar
+            </button>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="stripSvgBgRectChk" type="checkbox" />
+            <span>Quitar placa/rectángulo de fondo vectorial (.AI / .SVG)</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="ignoreBgChk" type="checkbox" />
+            <span>Eliminar fondo por color (hacer transparente)</span>
+          </label>
+
+          <div id="bgPickerPanel" class="bg-picker-panel" style="display:none;">
+            <div id="eyebanner" class="eyebanner">Haz clic sobre cualquier zona de fondo en la vista previa para eliminar ese color</div>
+
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <input id="bgColorInput" type="color" value="#ffffff" class="spot-color-input" style="width:34px; height:30px;" title="Color principal de fondo a eliminar" />
+              <button id="btnEyedropper" class="btn btn-sm" title="Haz clic en la vista previa para elegir el color de fondo">💧 Gotero en vista</button>
+              <button id="btnAddExtraBgColor" class="btn btn-sm" title="Haz clic en otro tono del fondo en la vista previa para sumarlo a la eliminación">+ Sumar color</button>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+              <span style="font-size:11px; color:var(--text-muted);">Rápido:</span>
+              <button id="btnAutoCornerBg" class="btn btn-sm" style="padding:3px 8px; font-size:11px;" title="Detectar color de las esquinas/bordes">Esquinas</button>
+              <button id="btnBgWhite" class="btn btn-sm" style="padding:3px 8px; font-size:11px;">⬜ Blanco</button>
+              <button id="btnBgBlack" class="btn btn-sm" style="padding:3px 8px; font-size:11px;">⬛ Negro</button>
+            </div>
+
+            <div id="extraBgColorsContainer" style="display:none; align-items:center; gap:6px; flex-wrap:wrap; padding-top:2px;">
+              <span style="font-size:11px; color:var(--text-muted);">Colores extra:</span>
+              <div id="extraBgColorsList" style="display:flex; gap:5px; flex-wrap:wrap;"></div>
+            </div>
+
+            <div class="field" style="margin-top:2px;">
+              <label for="bgRemovalModeSelect">Modo de eliminación</label>
+              <select id="bgRemovalModeSelect">
+                <option value="flood_holes">Exterior + Huecos de letras (protege interior)</option>
+                <option value="flood">Solo exterior (Varita desde los bordes)</option>
+                <option value="global">Todo el diseño (elimina el color en todas partes)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Tolerancia de color: <strong id="bgToleranceVal">18</strong>%</label>
+              <input id="bgToleranceInput" type="range" min="0" max="100" value="18" />
+            </div>
+
+            <div class="form-grid" style="align-items:center;">
+              <div class="field">
+                <label for="bgChokePxInput">Limpiar borde / halo (px)</label>
+                <input id="bgChokePxInput" type="number" min="0" max="5" step="1" value="0" title="Contrae el borde alfa 1-5 px si queda algún halo del fondo" />
+              </div>
+              <label class="checkbox-row" style="margin-top:14px;" title="Descontamina el color del fondo en los píxeles semitransparentes del borde para evitar halos blancos o grises">
+                <input id="bgDecontaminateChk" type="checkbox" checked />
+                <span>Quitar halo de color</span>
+              </label>
+            </div>
+          </div>
+
+          <label class="checkbox-row" style="margin-top:8px;" title="Recorta automáticamente el espacio transparente sobrante alrededor del diseño después de sacar el fondo">
+            <input id="autoTrimBgChk" type="checkbox" />
+            <span>Ajustar medida al diseño sin fondo (Auto-Trim)</span>
+          </label>
+        </div>
+      </details>
+
+      <!-- 4. Canales de Tinta (Spot Channels - Dropdown) -->
+      <details class="card card-dropdown">
+        <summary class="card-header dropdown-summary">
+          <div class="card-title">4. Canales de Tinta (Spot)</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="spotCountBadge" class="badge">4 activos</span>
+            <span class="dropdown-chevron">▾</span>
+          </div>
+        </summary>
+        <div class="dropdown-body">
+          <div class="preset-bar">
+            <button id="presetExample4" class="btn btn-sm" title="Spot 1 (-1px), Spot 2 (-1px), Spot 3 (+2px), Spot 4 (+2px)">
+              Preset Ejemplo (4 Spot)
+            </button>
+            <button id="presetWhite1" class="btn btn-sm" title="1 Canal Blanco con -1px de contracción">
+              1 Canal (Spot 1: -1px)
+            </button>
+            <button id="presetWhiteVarnish2" class="btn btn-sm" title="Spot 1 (-1px) + Spot 2 (+2px)">
+              2 Canales (-1px / +2px)
+            </button>
+            <button id="btnAddSpot" class="btn btn-sm btn-primary">+ Canal</button>
+          </div>
+
+          <div id="spotList" class="spot-list"></div>
+        </div>
+      </details>
+    </aside>
+
+    <!-- Panel de Vista Previa e Inspección -->
+    <section class="preview-panel">
+      <div class="preview-toolbar">
+        <div id="viewTabs" class="view-tabs"></div>
+        <div class="zoom-controls">
+          <button id="btnQuickRemoveBg" class="btn btn-sm btn-bg-action" title="Detecta y quita el fondo con 1 clic (o restaura si ya está activo)">✨ Sacar Fondo</button>
+          <button id="btnQuickEyedropper" class="btn btn-sm" title="Haz clic sobre cualquier color de fondo en la imagen para borrarlo">💧 Borrar Color</button>
+          <select id="previewBackdropSelect" class="backdrop-select" title="Color de mesa/prenda en la vista previa (no afecta al PDF)">
+            <option value="checker">🏁 Fondo: Transparente</option>
+            <option value="dark">⬛ Prenda Negra</option>
+            <option value="light">⬜ Prenda Blanca</option>
+            <option value="contrast">🟦 Contraste</option>
+          </select>
+          <button id="btnSpotModeToggle" class="btn btn-sm" style="display:none;">Vista Canal: Placa B/N (Photoshop)</button>
+          <button id="btnZoomOut" class="btn btn-sm">−</button>
+          <span id="zoomLabel" style="min-width:48px; text-align:center; font-size:12px; font-weight:600;">100%</span>
+          <button id="btnZoomIn" class="btn btn-sm">+</button>
+          <button id="btnZoomFit" class="btn btn-sm">Ajustar</button>
+        </div>
+      </div>
+
+      <div id="canvasViewport" class="canvas-viewport">
+        <div class="canvas-wrapper">
+          <canvas id="previewCanvas" width="226" height="1066"></canvas>
+        </div>
+      </div>
+
+      <footer class="status-footer">
+        <div>Modo PDF: <strong>CMYK + Separation Spot Channels (/op true) + AdobePhotoshop PieceInfo</strong></div>
+        <div id="pixelInspector" class="pixel-inspector">Pasa el mouse sobre la imagen para inspeccionar CMYK y tintas Spot</div>
+      </footer>
+    </section>
+  </main>
+
+  <script src="fzstd.min.js"></script>
+  <script src="icc_data.js"></script>
+  <script src="ai_parser.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

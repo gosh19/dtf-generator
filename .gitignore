@@ -1,0 +1,10 @@
+# Logs and temporary files
+scratch/
+*.log
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
