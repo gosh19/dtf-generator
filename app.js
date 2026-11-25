@@ -49,8 +49,8 @@ const state = {
   spotChannels: [
     { id: 1, enabled: true, name: 'Spot 1', offsetPx: -1, color: '#ff0000' },
     { id: 2, enabled: true, name: 'Spot 2', offsetPx: -1, color: '#ff0000' },
-    { id: 3, enabled: true, name: 'Spot 3', offsetPx: +2, color: '#ff0000' },
-    { id: 4, enabled: true, name: 'Spot 4', offsetPx: +2, color: '#ff0000' }
+    { id: 3, enabled: true, name: 'Spot 3', offsetPx: +1, color: '#ff0000' },
+    { id: 4, enabled: true, name: 'Spot 4', offsetPx: +1, color: '#ff0000' }
   ],
   nextSpotId: 5,
 
@@ -548,8 +548,8 @@ function bindUIEvents() {
     state.spotChannels = [
       { id: 1, enabled: true, name: 'Spot 1', offsetPx: -1, color: '#ff0000' },
       { id: 2, enabled: true, name: 'Spot 2', offsetPx: -1, color: '#ff0000' },
-      { id: 3, enabled: true, name: 'Spot 3', offsetPx: +2, color: '#ff0000' },
-      { id: 4, enabled: true, name: 'Spot 4', offsetPx: +2, color: '#ff0000' }
+      { id: 3, enabled: true, name: 'Spot 3', offsetPx: +1, color: '#ff0000' },
+      { id: 4, enabled: true, name: 'Spot 4', offsetPx: +1, color: '#ff0000' }
     ];
     state.nextSpotId = 5;
     renderSpotChannelsList();
