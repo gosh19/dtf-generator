@@ -5,8 +5,11 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace GeneradorDTF
 {
@@ -16,9 +19,18 @@ namespace GeneradorDTF
         private static HttpListener listener;
         private static int port = PreferredPort;
         private static string rootDir;
-        private static NotifyIcon trayIcon;
-        private static Process browserProc;
         private static Mutex singleInstanceMutex;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private const int SW_RESTORE = 9;
 
         [STAThread]
         static void Main()
@@ -27,30 +39,44 @@ namespace GeneradorDTF
             singleInstanceMutex = new Mutex(true, "GeneradorDTF_SingleInstance_Mutex", out createdNew);
             if (!createdNew)
             {
-                // Otra instancia ya está ejecutándose: abrir ventana en el navegador y salir
+                // Otra instancia ya está abierta: traer su ventana al frente
                 try
                 {
-                    Process.Start("http://127.0.0.1:" + PreferredPort + "/index.html");
+                    IntPtr hWnd = FindWindow(null, "Generador DTF");
+                    if (hWnd != IntPtr.Zero)
+                    {
+                        ShowWindow(hWnd, SW_RESTORE);
+                        SetForegroundWindow(hWnd);
+                        return;
+                    }
                 }
                 catch { }
                 return;
             }
 
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
             rootDir = AppDomain.CurrentDomain.BaseDirectory;
-
             StartServer();
-            SetupTrayIcon();
-            OpenAppWindow();
 
-            Application.ApplicationExit += (s, e) => Cleanup();
-            Application.Run();
+            try
+            {
+                string appUrl = "http://127.0.0.1:" + port + "/index.html";
+                MainWindow mainForm = new MainWindow(rootDir, appUrl);
+                Application.ApplicationExit += (s, e) => Cleanup();
+                Application.Run(mainForm);
+            }
+            finally
+            {
+                Cleanup();
+            }
         }
 
         private static void StartServer()
         {
             try
             {
-                // Intentar usar siempre el puerto preferido fijo para mantener origen y sesión estables
                 port = PreferredPort;
                 bool portOk = false;
 
@@ -63,7 +89,6 @@ namespace GeneradorDTF
                 }
                 catch
                 {
-                    // Si el puerto fijo estuviese en uso, buscar uno libre dinámico
                     try
                     {
                         TcpListener tcpDynamic = new TcpListener(IPAddress.Loopback, 0);
@@ -138,7 +163,10 @@ namespace GeneradorDTF
                     byte[] notFoundBytes = System.Text.Encoding.UTF8.GetBytes("<!DOCTYPE html><html><body><h1>404 No Encontrado</h1></body></html>");
                     context.Response.ContentType = "text/html; charset=utf-8";
                     context.Response.ContentLength64 = notFoundBytes.Length;
-                    context.Response.OutputStream.Write(notFoundBytes, 0, notFoundBytes.Length);
+                    if (!string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Response.OutputStream.Write(notFoundBytes, 0, notFoundBytes.Length);
+                    }
                     context.Response.Close();
                     return;
                 }
@@ -184,7 +212,10 @@ namespace GeneradorDTF
 
                 byte[] buffer = File.ReadAllBytes(filePath);
                 context.Response.ContentLength64 = buffer.Length;
-                context.Response.OutputStream.Write(buffer, 0, buffer.Length);
+                if (!string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Response.OutputStream.Write(buffer, 0, buffer.Length);
+                }
                 context.Response.Close();
             }
             catch
@@ -198,167 +229,8 @@ namespace GeneradorDTF
             }
         }
 
-        private static void OpenAppWindow()
-        {
-            string url = "http://127.0.0.1:" + port + "/index.html";
-            string[] browsers = new string[]
-            {
-                @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                @"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-                @"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-            };
-
-            string browserPath = null;
-            foreach (string p in browsers)
-            {
-                if (File.Exists(p))
-                {
-                    browserPath = p;
-                    break;
-                }
-            }
-
-            if (browserPath != null)
-            {
-                try
-                {
-                    string profileDir = Path.Combine(Path.GetTempPath(), "DTFGenerator_Profile");
-                    CleanProfileSession(profileDir);
-
-                    string args = "--user-data-dir=\"" + profileDir + "\" " +
-                                  "--app=" + url + " " +
-                                  "--window-size=1400,900 " +
-                                  "--no-first-run " +
-                                  "--no-default-browser-check " +
-                                  "--disable-session-crashed-bubble " +
-                                  "--disable-restore-session-state " +
-                                  "--disable-background-mode";
-
-                    ProcessStartInfo psi = new ProcessStartInfo
-                    {
-                        FileName = browserPath,
-                        Arguments = args,
-                        UseShellExecute = false
-                    };
-
-                    browserProc = Process.Start(psi);
-                    if (browserProc != null)
-                    {
-                        browserProc.EnableRaisingEvents = true;
-                        browserProc.Exited += (s, e) =>
-                        {
-                            Application.Exit();
-                        };
-                    }
-                    return;
-                }
-                catch { }
-            }
-
-            // Fallback a navegador predeterminado
-            try
-            {
-                Process.Start(url);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("No se pudo abrir el navegador: " + ex.Message, "Generador DTF", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private static void CleanProfileSession(string profileDir)
-        {
-            try
-            {
-                string sessionsDir = Path.Combine(profileDir, "Default", "Sessions");
-                if (Directory.Exists(sessionsDir))
-                {
-                    string[] files = Directory.GetFiles(sessionsDir);
-                    foreach (string f in files)
-                    {
-                        try { File.Delete(f); } catch { }
-                    }
-                }
-            }
-            catch { }
-
-            try
-            {
-                string prefsPath = Path.Combine(profileDir, "Default", "Preferences");
-                if (File.Exists(prefsPath))
-                {
-                    string content = File.ReadAllText(prefsPath);
-                    bool changed = false;
-                    if (content.Contains("\"exit_type\":\"Crashed\""))
-                    {
-                        content = content.Replace("\"exit_type\":\"Crashed\"", "\"exit_type\":\"Normal\"");
-                        changed = true;
-                    }
-                    if (content.Contains("\"exited_cleanly\":false"))
-                    {
-                        content = content.Replace("\"exited_cleanly\":false", "\"exited_cleanly\":true");
-                        changed = true;
-                    }
-                    if (changed)
-                    {
-                        File.WriteAllText(prefsPath, content);
-                    }
-                }
-            }
-            catch { }
-        }
-
-        private static void SetupTrayIcon()
-        {
-            try
-            {
-                ContextMenu menu = new ContextMenu();
-                menu.MenuItems.Add("Abrir Generador DTF", (s, e) => OpenAppWindow());
-                menu.MenuItems.Add("-");
-                menu.MenuItems.Add("Cerrar", (s, e) => Application.Exit());
-
-                Icon appIcon = null;
-                string icoPath = Path.Combine(rootDir, "app.ico");
-                if (File.Exists(icoPath))
-                {
-                    try { appIcon = new Icon(icoPath); } catch { }
-                }
-                if (appIcon == null)
-                {
-                    try { appIcon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { }
-                }
-                if (appIcon == null)
-                {
-                    appIcon = SystemIcons.Application;
-                }
-
-                trayIcon = new NotifyIcon
-                {
-                    Icon = appIcon,
-                    ContextMenu = menu,
-                    Text = "Generador DTF",
-                    Visible = true
-                };
-
-                trayIcon.DoubleClick += (s, e) => OpenAppWindow();
-            }
-            catch { }
-        }
-
         private static void Cleanup()
         {
-            try
-            {
-                if (trayIcon != null)
-                {
-                    trayIcon.Visible = false;
-                    trayIcon.Dispose();
-                    trayIcon = null;
-                }
-            }
-            catch { }
-
             try
             {
                 if (listener != null && listener.IsListening)
@@ -380,6 +252,126 @@ namespace GeneradorDTF
                 }
             }
             catch { }
+        }
+    }
+
+    class MainWindow : Form
+    {
+        private readonly string rootDir;
+        private readonly string appUrl;
+        private WebView2 webView;
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
+        public MainWindow(string rootDir, string appUrl)
+        {
+            this.rootDir = rootDir;
+            this.appUrl = appUrl;
+
+            Text = "Generador DTF";
+            BackColor = Color.FromArgb(15, 23, 42);
+            MinimumSize = new Size(1024, 680);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            Rectangle wa = Screen.PrimaryScreen.WorkingArea;
+            if (wa.Width <= 1460 || wa.Height <= 920)
+            {
+                Size = new Size(Math.Min(1360, wa.Width - 40), Math.Min(860, wa.Height - 40));
+                WindowState = FormWindowState.Maximized;
+            }
+            else
+            {
+                Size = new Size(1440, 900);
+            }
+
+            Icon appIcon = LoadAppIcon();
+            if (appIcon != null)
+            {
+                Icon = appIcon;
+            }
+
+            webView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                DefaultBackgroundColor = Color.FromArgb(15, 23, 42)
+            };
+            Controls.Add(webView);
+
+            HandleCreated += (s, e) => EnableDarkTitleBar();
+            Load += MainWindow_Load;
+        }
+
+        private Icon LoadAppIcon()
+        {
+            string icoPath = Path.Combine(rootDir, "app.ico");
+            if (File.Exists(icoPath))
+            {
+                try { return new Icon(icoPath); } catch { }
+            }
+            try { return Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { }
+            return null;
+        }
+
+        private void EnableDarkTitleBar()
+        {
+            try
+            {
+                int useDark = 1;
+                if (DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int)) != 0)
+                {
+                    DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
+                }
+            }
+            catch { }
+        }
+
+        private async void MainWindow_Load(object sender, EventArgs e)
+        {
+            try
+            {
+                string userDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "GeneradorDTF",
+                    "WebView2Data"
+                );
+                Directory.CreateDirectory(userDataFolder);
+
+                CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                await webView.EnsureCoreWebView2Async(env);
+
+                CoreWebView2Settings settings = webView.CoreWebView2.Settings;
+                settings.AreDefaultContextMenusEnabled = false;
+                settings.AreDevToolsEnabled = false;
+                settings.IsStatusBarEnabled = false;
+                settings.IsZoomControlEnabled = false;
+                settings.AreDefaultScriptDialogsEnabled = true;
+
+                webView.CoreWebView2.NewWindowRequested += (s, args) =>
+                {
+                    args.Handled = true;
+                };
+
+                webView.CoreWebView2.Navigate(appUrl);
+            }
+            catch (Exception ex)
+            {
+                // Fallback seguro si el equipo no tiene WebView2 Runtime instalado
+                DialogResult res = MessageBox.Show(
+                    "No se pudo iniciar el motor de escritorio WebView2 (" + ex.Message + ").\n\n¿Deseás abrir Generador DTF en tu navegador predeterminado?",
+                    "Generador DTF",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (res == DialogResult.Yes)
+                {
+                    try { Process.Start(appUrl); } catch { }
+                }
+            }
         }
     }
 }

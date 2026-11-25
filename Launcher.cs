@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
@@ -87,13 +88,13 @@ namespace GeneradorDTFLauncher
             catch { }
         }
 
-        private static void SetStatus(string status, string detail)
+        private static void SetStatus(string status, string detail, string versionTag, int? progressPercent, bool isSuccess)
         {
             if (splash != null && !splash.IsDisposed)
             {
                 try
                 {
-                    splash.BeginInvoke((Action)(() => splash.UpdateStatus(status, detail)));
+                    splash.BeginInvoke((Action)(() => splash.UpdateState(status, detail, versionTag, progressPercent, isSuccess)));
                 }
                 catch { }
             }
@@ -117,7 +118,7 @@ namespace GeneradorDTFLauncher
 
             try
             {
-                SetStatus("Buscando actualizaciones...", "Verificando repositorio remoto");
+                SetStatus("Verificando actualizaciones...", "Conectando con el repositorio...", null, null, false);
 
                 bool hasGitDir = Directory.Exists(Path.Combine(rootDir, ".git"));
                 bool hasGitCli = hasGitDir && IsGitAvailable();
@@ -133,16 +134,16 @@ namespace GeneradorDTFLauncher
             }
             catch (Exception ex)
             {
-                SetStatus("Iniciando versión local...", "No se pudo verificar actualizaciones");
+                SetStatus("Iniciando versión local...", "No se pudo verificar actualizaciones", null, 100, false);
                 LogError("Error general en actualizador: " + ex.Message);
                 Thread.Sleep(700);
             }
 
             if (!relaunchDeferred)
             {
-                SetStatus("Iniciando Generador DTF...", "Abriendo aplicación");
-                Thread.Sleep(250);
+                SetStatus("Iniciando Generador DTF...", "Abriendo aplicación de escritorio", null, 100, true);
                 LaunchMainApp();
+                Thread.Sleep(650);
             }
 
             CloseSplash();
@@ -174,11 +175,18 @@ namespace GeneradorDTFLauncher
                 }
             }
 
-            SetStatus("Buscando actualizaciones...", "Consultando Git (rama " + branch + ")");
+            string shortSha = "";
+            CommandResult shaRes = RunProcess("git", "rev-parse --short HEAD", rootDir, 5000);
+            if (shaRes.ExitCode == 0 && !string.IsNullOrWhiteSpace(shaRes.StdOut))
+            {
+                shortSha = "v" + shaRes.StdOut.Trim();
+            }
+
+            SetStatus("Verificando actualizaciones...", "Git · rama " + branch, shortSha, null, false);
             CommandResult fetchRes = RunProcess("git", "fetch origin " + branch, rootDir, 15000);
             if (fetchRes.TimedOut || fetchRes.ExitCode != 0)
             {
-                SetStatus("Sin conexión al servidor Git", "Iniciando versión local...");
+                SetStatus("Modo sin conexión", "No se pudo contactar al servidor · usando versión local", shortSha, 100, false);
                 Thread.Sleep(700);
                 return false;
             }
@@ -192,17 +200,21 @@ namespace GeneradorDTFLauncher
 
             if (behindCount <= 0)
             {
-                SetStatus("Aplicación actualizada", "No hay cambios nuevos");
-                Thread.Sleep(350);
+                SetStatus("Todo al día", "Git · rama " + branch + " actualizada", shortSha, 100, true);
+                Thread.Sleep(550);
                 return false;
             }
 
-            SetStatus("Descargando cambios nuevos...", behindCount + (behindCount == 1 ? " actualización pendiente" : " actualizaciones pendientes"));
+            SetStatus(
+                "Descargando " + behindCount + (behindCount == 1 ? " actualización..." : " actualizaciones..."),
+                "Sincronizando cambios desde Git (" + branch + ")",
+                shortSha,
+                null,
+                false
+            );
 
-            // Cerrar GeneradorDTF.exe si está corriendo para evitar bloqueo de archivo
             CloseRunningTargetApp();
 
-            // Verificar si el propio inicializador cambió en los nuevos commits
             string selfName = Path.GetFileName(selfExePath);
             CommandResult diffRes = RunProcess("git", "diff --name-only HEAD..origin/" + branch, rootDir, 5000);
             bool selfChanged = false;
@@ -221,8 +233,8 @@ namespace GeneradorDTFLauncher
 
             if (selfChanged)
             {
-                SetStatus("Actualizando inicializador...", "Reiniciando para aplicar cambios");
-                Thread.Sleep(400);
+                SetStatus("Actualizando inicializador...", "Reiniciando para aplicar cambios", shortSha, 85, false);
+                Thread.Sleep(450);
                 RunDeferredGitSelfUpdate(branch, selfName);
                 return true;
             }
@@ -230,14 +242,15 @@ namespace GeneradorDTFLauncher
             CommandResult pullRes = RunProcess("git", "pull --ff-only origin " + branch, rootDir, 30000);
             if (pullRes.ExitCode == 0)
             {
-                SetStatus("Actualización completada", "Iniciando nueva versión...");
-                Thread.Sleep(500);
+                CommandResult newShaRes = RunProcess("git", "rev-parse --short HEAD", rootDir, 5000);
+                string newSha = (newShaRes.ExitCode == 0 && !string.IsNullOrWhiteSpace(newShaRes.StdOut)) ? "v" + newShaRes.StdOut.Trim() : shortSha;
+                SetStatus("Actualización completada", "Nueva versión lista para usar", newSha, 100, true);
+                Thread.Sleep(600);
                 return false;
             }
 
-            // Si git pull falló (por ejemplo, cambios locales sin commitear en esta PC)
             LogError("git pull falló: " + pullRes.StdErr + " " + pullRes.StdOut);
-            SetStatus("No se pudo actualizar automáticamente", "Hay cambios locales sin guardar");
+            SetStatus("Cambios locales detectados", "Se iniciará la versión local actual", shortSha, 100, false);
 
             if (splash != null && !splash.IsDisposed)
             {
@@ -273,28 +286,31 @@ namespace GeneradorDTFLauncher
 
         private static void TryUpdateViaGitHubZip()
         {
-            SetStatus("Buscando actualizaciones...", "Consultando GitHub (" + GitHubOwner + "/" + GitHubRepo + ")");
+            string versionFilePath = Path.Combine(rootDir, VersionFileName);
+            string localSha = File.Exists(versionFilePath) ? File.ReadAllText(versionFilePath).Trim() : "";
+            string localTag = localSha.Length >= 7 ? "v" + localSha.Substring(0, 7) : "";
+
+            SetStatus("Verificando actualizaciones...", "GitHub · " + GitHubOwner + "/" + GitHubRepo, localTag, null, false);
 
             string remoteSha = FetchLatestGitHubCommitSha();
             if (string.IsNullOrEmpty(remoteSha))
             {
-                SetStatus("Sin conexión a GitHub", "Iniciando versión local...");
+                SetStatus("Modo sin conexión", "Usando versión local instalada", localTag, 100, false);
                 Thread.Sleep(700);
                 return;
             }
 
-            string versionFilePath = Path.Combine(rootDir, VersionFileName);
-            string localSha = File.Exists(versionFilePath) ? File.ReadAllText(versionFilePath).Trim() : "";
+            string remoteTag = "v" + remoteSha.Substring(0, 7);
             string targetExePath = Path.Combine(rootDir, TargetExeName);
 
             if (string.Equals(localSha, remoteSha, StringComparison.OrdinalIgnoreCase) && File.Exists(targetExePath))
             {
-                SetStatus("Aplicación actualizada", "Versión " + remoteSha.Substring(0, 7));
-                Thread.Sleep(350);
+                SetStatus("Todo al día", "GitHub · última versión instalada", remoteTag, 100, true);
+                Thread.Sleep(550);
                 return;
             }
 
-            SetStatus("Descargando nueva versión...", "Obteniendo archivos desde GitHub (" + remoteSha.Substring(0, 7) + ")");
+            SetStatus("Descargando nueva versión...", "Obteniendo archivos desde GitHub", remoteTag, null, false);
             CloseRunningTargetApp();
 
             string tempId = Guid.NewGuid().ToString("N");
@@ -310,7 +326,7 @@ namespace GeneradorDTFLauncher
                     wc.DownloadFile(zipUrl, zipPath);
                 }
 
-                SetStatus("Instalando actualización...", "Extrayendo archivos nuevos");
+                SetStatus("Instalando actualización...", "Extrayendo archivos nuevos", remoteTag, 75, false);
                 ZipFile.ExtractToDirectory(zipPath, extractDir);
 
                 string[] topDirs = Directory.GetDirectories(extractDir);
@@ -319,13 +335,13 @@ namespace GeneradorDTFLauncher
                 CopyDirectoryContents(sourceRoot, rootDir);
                 File.WriteAllText(versionFilePath, remoteSha);
 
-                SetStatus("Actualización completada", "Versión " + remoteSha.Substring(0, 7) + " instalada");
-                Thread.Sleep(500);
+                SetStatus("Actualización completada", "Nueva versión instalada correctamente", remoteTag, 100, true);
+                Thread.Sleep(600);
             }
             catch (Exception ex)
             {
                 LogError("Error descargando actualización desde GitHub: " + ex.Message);
-                SetStatus("Error al descargar actualización", "Iniciando versión local...");
+                SetStatus("Error al descargar actualización", "Iniciando versión local...", localTag, 100, false);
                 Thread.Sleep(800);
             }
             finally
@@ -367,8 +383,6 @@ namespace GeneradorDTFLauncher
 
         private static void CopyDirectoryContents(string sourceDir, string destDir)
         {
-            string selfName = Path.GetFileName(selfExePath);
-
             foreach (string dirPath in Directory.GetDirectories(sourceDir, "*", SearchOption.AllDirectories))
             {
                 string rel = dirPath.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -392,7 +406,6 @@ namespace GeneradorDTFLauncher
                     Directory.CreateDirectory(destFolder);
                 }
 
-                // Si se va a sobrescribir el propio inicializador en ejecución, renombrarlo primero
                 if (string.Equals(Path.GetFullPath(destFile), Path.GetFullPath(selfExePath), StringComparison.OrdinalIgnoreCase))
                 {
                     try
@@ -550,15 +563,32 @@ namespace GeneradorDTFLauncher
 
     class SplashForm : Form
     {
-        private readonly Label lblStatus;
-        private readonly Label lblDetail;
+        private readonly Image logoImage;
+        private readonly System.Windows.Forms.Timer animTimer;
+        private string statusText = "Verificando actualizaciones...";
+        private string detailText = "Iniciando verificador";
+        private string versionText = "";
+        private int? progressPercent = null;
+        private bool isSuccess = false;
+        private float animOffset = 0f;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW
+                return cp;
+            }
+        }
 
         public SplashForm(string rootDir)
         {
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(420, 148);
-            BackColor = Color.FromArgb(20, 24, 33);
+            ClientSize = new Size(460, 250);
+            BackColor = Color.FromArgb(15, 23, 42);
+            DoubleBuffered = true;
             ShowInTaskbar = true;
             Text = "Generador DTF";
 
@@ -577,71 +607,176 @@ namespace GeneradorDTFLauncher
                 Icon = appIcon;
             }
 
-            Paint += (s, e) =>
+            string pngPath = Path.Combine(rootDir, "app_icon.png");
+            if (File.Exists(pngPath))
             {
-                using (Pen borderPen = new Pen(Color.FromArgb(48, 58, 78), 1))
+                try
                 {
-                    e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+                    using (Image tmp = Image.FromFile(pngPath))
+                    {
+                        logoImage = new Bitmap(tmp);
+                    }
                 }
-            };
-
-            PictureBox pic = new PictureBox
-            {
-                Size = new Size(44, 44),
-                Location = new Point(22, 24),
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.Transparent
-            };
-            if (appIcon != null)
-            {
-                try { pic.Image = appIcon.ToBitmap(); } catch { }
+                catch { }
             }
-            Controls.Add(pic);
-
-            Label lblTitle = new Label
+            if (logoImage == null && appIcon != null)
             {
-                Text = "Generador DTF",
-                ForeColor = Color.FromArgb(241, 245, 249),
-                Font = new Font("Segoe UI", 13F, FontStyle.Bold),
-                Location = new Point(78, 22),
-                AutoSize = true
-            };
-            Controls.Add(lblTitle);
+                try { logoImage = appIcon.ToBitmap(); } catch { }
+            }
 
-            lblStatus = new Label
+            animTimer = new System.Windows.Forms.Timer { Interval = 16 };
+            animTimer.Tick += (s, e) =>
             {
-                Text = "Buscando actualizaciones...",
-                ForeColor = Color.FromArgb(148, 163, 184),
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
-                Location = new Point(79, 49),
-                Size = new Size(320, 22)
+                animOffset += 0.025f;
+                if (animOffset > 1.35f) animOffset = -0.35f;
+                Invalidate();
             };
-            Controls.Add(lblStatus);
+            animTimer.Start();
 
-            lblDetail = new Label
+            FormClosed += (s, e) =>
             {
-                Text = "Iniciando verificador",
-                ForeColor = Color.FromArgb(100, 116, 139),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                Location = new Point(22, 114),
-                Size = new Size(376, 18)
+                animTimer.Stop();
+                animTimer.Dispose();
+                if (logoImage != null) logoImage.Dispose();
             };
-            Controls.Add(lblDetail);
-
-            ProgressBar progress = new ProgressBar
-            {
-                Style = ProgressBarStyle.Marquee,
-                MarqueeAnimationSpeed = 28,
-                Location = new Point(22, 92),
-                Size = new Size(376, 12)
-            };
-            Controls.Add(progress);
         }
 
-        public void UpdateStatus(string status, string detail)
+        public void UpdateState(string status, string detail, string versionTag, int? percent, bool success)
         {
-            lblStatus.Text = status ?? "";
-            lblDetail.Text = detail ?? "";
+            if (status != null) statusText = status;
+            if (detail != null) detailText = detail;
+            if (versionTag != null) versionText = versionTag;
+            progressPercent = percent;
+            isSuccess = success;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            // Fondo con degradado sutil oscuro
+            using (LinearGradientBrush bgBrush = new LinearGradientBrush(
+                ClientRectangle,
+                Color.FromArgb(18, 26, 46),
+                Color.FromArgb(11, 17, 32),
+                LinearGradientMode.Vertical))
+            {
+                g.FillRectangle(bgBrush, ClientRectangle);
+            }
+
+            // Franja superior de acento
+            using (LinearGradientBrush accentBrush = new LinearGradientBrush(
+                new Rectangle(0, 0, Width, 3),
+                Color.FromArgb(56, 189, 248),
+                Color.FromArgb(99, 102, 241),
+                LinearGradientMode.Horizontal))
+            {
+                g.FillRectangle(accentBrush, 0, 0, Width, 3);
+            }
+
+            // Borde elegante
+            using (Pen borderPen = new Pen(Color.FromArgb(51, 65, 85), 1))
+            {
+                g.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+            }
+
+            // Logo centrado arriba
+            if (logoImage != null)
+            {
+                int logoSize = 64;
+                int logoX = (Width - logoSize) / 2;
+                int logoY = 26;
+                g.DrawImage(logoImage, new Rectangle(logoX, logoY, logoSize, logoSize));
+            }
+
+            // Título y subtítulo centrados
+            using (Font titleFont = new Font("Segoe UI", 15.5f, FontStyle.Bold))
+            using (Font subFont = new Font("Segoe UI", 9f, FontStyle.Regular))
+            using (SolidBrush whiteBrush = new SolidBrush(Color.FromArgb(248, 250, 252)))
+            using (SolidBrush mutedBrush = new SolidBrush(Color.FromArgb(148, 163, 184)))
+            using (StringFormat centerFmt = new StringFormat { Alignment = StringAlignment.Center })
+            {
+                g.DrawString("Generador DTF", titleFont, whiteBrush, new RectangleF(0, 98, Width, 28), centerFmt);
+                g.DrawString("Aplicación de Escritorio · Canales Spot PDF", subFont, mutedBrush, new RectangleF(0, 126, Width, 20), centerFmt);
+            }
+
+            // Texto de estado actual
+            int barX = 36;
+            int barW = Width - 72;
+            int barY = 186;
+            int barH = 8;
+
+            using (Font statusFont = new Font("Segoe UI Semibold", 9.5f, FontStyle.Regular))
+            using (SolidBrush statusBrush = new SolidBrush(isSuccess ? Color.FromArgb(52, 211, 153) : Color.FromArgb(226, 232, 240)))
+            {
+                g.DrawString(statusText, statusFont, statusBrush, barX, 160);
+            }
+
+            // Barra de progreso custom redondeada
+            using (GraphicsPath trackPath = RoundedRect(new Rectangle(barX, barY, barW, barH), 4))
+            using (SolidBrush trackBrush = new SolidBrush(Color.FromArgb(30, 41, 59)))
+            {
+                g.FillPath(trackBrush, trackPath);
+                g.SetClip(trackPath);
+
+                if (progressPercent.HasValue)
+                {
+                    int pct = Math.Max(0, Math.Min(100, progressPercent.Value));
+                    int fillW = (int)(barW * (pct / 100f));
+                    if (fillW > 0)
+                    {
+                        Color c1 = isSuccess ? Color.FromArgb(16, 185, 129) : Color.FromArgb(56, 189, 248);
+                        Color c2 = isSuccess ? Color.FromArgb(52, 211, 153) : Color.FromArgb(99, 102, 241);
+                        using (LinearGradientBrush fillBrush = new LinearGradientBrush(new Rectangle(barX, barY, Math.Max(1, fillW), barH), c1, c2, LinearGradientMode.Horizontal))
+                        {
+                            g.FillRectangle(fillBrush, barX, barY, fillW, barH);
+                        }
+                    }
+                }
+                else
+                {
+                    int segW = (int)(barW * 0.32f);
+                    int segX = barX + (int)(barW * animOffset);
+                    using (LinearGradientBrush animBrush = new LinearGradientBrush(
+                        new Rectangle(segX, barY, segW, barH),
+                        Color.FromArgb(56, 189, 248),
+                        Color.FromArgb(99, 102, 241),
+                        LinearGradientMode.Horizontal))
+                    {
+                        g.FillRectangle(animBrush, segX, barY, segW, barH);
+                    }
+                }
+
+                g.ResetClip();
+            }
+
+            // Pie: detalle a la izquierda y versión a la derecha
+            using (Font footerFont = new Font("Segoe UI", 8.5f, FontStyle.Regular))
+            using (SolidBrush footerBrush = new SolidBrush(Color.FromArgb(100, 116, 139)))
+            using (StringFormat rightFmt = new StringFormat { Alignment = StringAlignment.Far })
+            {
+                g.DrawString(detailText, footerFont, footerBrush, new RectangleF(barX, 206, barW - 70, 20));
+                if (!string.IsNullOrEmpty(versionText))
+                {
+                    g.DrawString(versionText, footerFont, footerBrush, new RectangleF(barX, 206, barW, 20), rightFmt);
+                }
+            }
+        }
+
+        private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
+        {
+            int d = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
     }
 }
