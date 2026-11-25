@@ -152,9 +152,11 @@ namespace GeneradorDTF
                         break;
                     case ".js":
                         context.Response.ContentType = "application/javascript; charset=utf-8";
+                        context.Response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
                         break;
                     case ".css":
                         context.Response.ContentType = "text/css; charset=utf-8";
+                        context.Response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
                         break;
                     case ".svg":
                         context.Response.ContentType = "image/svg+xml";

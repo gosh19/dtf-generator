@@ -594,6 +594,62 @@ function bindUIEvents() {
   document.getElementById('btnZoomOut').addEventListener('click', () => setZoom(state.zoom / 1.4));
   document.getElementById('btnZoomIn').addEventListener('click', () => setZoom(state.zoom * 1.4));
   document.getElementById('btnZoomFit').addEventListener('click', () => fitCanvasToViewport());
+
+  // Zoom con Ctrl + Scroll (rueda del mouse) centrado bajo el cursor
+  window.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    const vp = document.getElementById('canvasViewport');
+    if (!vp) return;
+    const rect = vp.getBoundingClientRect();
+    const inside = (
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top && e.clientY <= rect.bottom
+    );
+    if (!inside) return;
+
+    e.preventDefault();
+    const canvas = document.getElementById('previewCanvas');
+    if (!canvas || !canvas.width || !canvas.height) return;
+
+    const factor = e.deltaY < 0 ? 1.15 : (1 / 1.15);
+    zoomAtPoint(state.zoom * factor, e.clientX, e.clientY);
+  }, { passive: false });
+  // Desplazamiento / Pan de la vista con el botón del medio del mouse (rueda presionada)
+  let isMiddlePanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let scrollStartX = 0;
+  let scrollStartY = 0;
+  const vp = document.getElementById('canvasViewport');
+
+  if (vp) {
+    vp.addEventListener('mousedown', (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        isMiddlePanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = vp.scrollLeft;
+        scrollStartY = vp.scrollTop;
+        vp.classList.add('is-panning');
+      }
+    });
+
+    vp.addEventListener('auxclick', (e) => {
+      if (e.button === 1) e.preventDefault();
+    });
+  }
+
+  window.addEventListener('mousemove', (e) => {
+    if (isMiddlePanning && vp) {
+      e.preventDefault();
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      vp.scrollLeft = scrollStartX - dx;
+      vp.scrollTop = scrollStartY - dy;
+    }
+  });
+
   document.getElementById('btnSpotModeToggle').addEventListener('click', () => {
     state.spotViewMode = state.spotViewMode === 'plate' ? 'ink' : 'plate';
     updateSpotModeButtonText();
@@ -604,19 +660,31 @@ function bindUIEvents() {
   const canvas = document.getElementById('previewCanvas');
 
   canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      return;
+    }
     if (state.activeView === 'pasteboard' && state.aiDoc) {
       const pt = canvasEventToAiPoint(e, canvas);
       if (state.manualCropMode) {
         state.dragCropStart = pt;
         state.dragCropCurr = pt;
       } else {
-        // Verificar si hizo clic dentro de algún diseño detectado
-        for (let i = state.aiDoc.designs.length - 1; i >= 0; i--) {
+        // Verificar si hizo clic dentro de algún diseño detectado (priorizar el diseño más específico/pequeño)
+        let bestIdx = -1;
+        let bestArea = Infinity;
+        for (let i = 0; i < state.aiDoc.designs.length; i++) {
           const d = state.aiDoc.designs[i];
           if (pt.x >= d.minX && pt.x <= d.maxX && pt.y >= d.minY && pt.y <= d.maxY) {
-            selectAiDesign(i, true);
-            break;
+            const area = (d.maxX - d.minX) * (d.maxY - d.minY);
+            if (area < bestArea) {
+              bestArea = area;
+              bestIdx = i;
+            }
           }
+        }
+        if (bestIdx >= 0) {
+          selectAiDesign(bestIdx, true);
         }
       }
     }
@@ -625,10 +693,21 @@ function bindUIEvents() {
   canvas.addEventListener('mousemove', (e) => {
     if (state.activeView === 'pasteboard' && state.aiDoc) {
       const pt = canvasEventToAiPoint(e, canvas);
-      document.getElementById('pixelInspector').textContent =
-        `Zona Gris .AI | Coordenadas: X=${pt.x.toFixed(1)} pt, Y=${pt.y.toFixed(1)} pt | Haz clic en cualquier recuadro para abrir sus canales Spot`;
+      document.getElementById('pixelInspector').textContent = state.manualCropMode
+        ? `Zona Gris .AI | Recorte con Mouse: arrastra para encerrar un diseño (Mantén Shift para proporción cuadrada 1:1)`
+        : `Zona Gris .AI | Coordenadas: X=${pt.x.toFixed(1)} pt, Y=${pt.y.toFixed(1)} pt | Haz clic en cualquier recuadro para abrir sus canales Spot`;
       if (state.manualCropMode && state.dragCropStart) {
-        state.dragCropCurr = pt;
+        if (e.shiftKey) {
+          const dx = pt.x - state.dragCropStart.x;
+          const dy = pt.y - state.dragCropStart.y;
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          state.dragCropCurr = {
+            x: state.dragCropStart.x + (dx >= 0 ? side : -side),
+            y: state.dragCropStart.y + (dy >= 0 ? side : -side)
+          };
+        } else {
+          state.dragCropCurr = pt;
+        }
         renderPreviewCanvas();
       }
       return;
@@ -661,12 +740,27 @@ function bindUIEvents() {
       : 'Sin archivo cargado';
   });
 
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('mouseup', (e) => {
+    if (isMiddlePanning) {
+      isMiddlePanning = false;
+      if (vp) vp.classList.remove('is-panning');
+    }
+
     if (state.activeView === 'pasteboard' && state.manualCropMode && state.dragCropStart && state.dragCropCurr) {
-      const p1 = state.dragCropStart;
-      const p2 = state.dragCropCurr;
+      let p1 = state.dragCropStart;
+      let p2 = state.dragCropCurr;
       state.dragCropStart = null;
       state.dragCropCurr = null;
+
+      if (e.shiftKey) {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const side = Math.max(Math.abs(dx), Math.abs(dy));
+        p2 = {
+          x: p1.x + (dx >= 0 ? side : -side),
+          y: p1.y + (dy >= 0 ? side : -side)
+        };
+      }
 
       const minX = Math.min(p1.x, p2.x);
       const maxX = Math.max(p1.x, p2.x);
@@ -769,8 +863,37 @@ function createManualCropDesign(minX, minY, maxX, maxY) {
     return;
   }
 
-  const widthPt = maxX - minX;
-  const heightPt = maxY - minY;
+  // Calcular la caja delimitadora real de los elementos seleccionados
+  let elemMinX = Infinity, elemMinY = Infinity, elemMaxX = -Infinity, elemMaxY = -Infinity;
+  for (const el of matching) {
+    if (el.minX < elemMinX) elemMinX = el.minX;
+    if (el.minY < elemMinY) elemMinY = el.minY;
+    if (el.maxX > elemMaxX) elemMaxX = el.maxX;
+    if (el.maxY > elemMaxY) elemMaxY = el.maxY;
+  }
+
+  let finalMinX = minX;
+  let finalMinY = minY;
+  let finalMaxX = maxX;
+  let finalMaxY = maxY;
+
+  // Si el usuario arrastró para seleccionar/encerrar elementos, ajustar a los límites geométricos reales
+  // para preservar 100% la proporción original, dimensiones exactas y evitar deformaciones.
+  if (elemMinX <= elemMaxX && elemMinY <= elemMaxY) {
+    const isSingleRasterSubcrop = matching.length === 1 && matching[0].raster &&
+      (minX > elemMinX + 5 || maxX < elemMaxX - 5 || minY > elemMinY + 5 || maxY < elemMaxY - 5) &&
+      ((maxX - minX) * (maxY - minY) < (elemMaxX - elemMinX) * (elemMaxY - elemMinY) * 0.75);
+
+    if (!isSingleRasterSubcrop) {
+      finalMinX = elemMinX;
+      finalMinY = elemMinY;
+      finalMaxX = elemMaxX;
+      finalMaxY = elemMaxY;
+    }
+  }
+
+  const widthPt = finalMaxX - finalMinX;
+  const heightPt = finalMaxY - finalMinY;
   const widthMm = +(widthPt * 25.4 / 72).toFixed(2);
   const heightMm = +(heightPt * 25.4 / 72).toFixed(2);
   const newIdx = state.aiDoc.designs.length;
@@ -779,10 +902,10 @@ function createManualCropDesign(minX, minY, maxX, maxY) {
     id: newIdx,
     selected: true,
     name: `Recorte Manual #${newIdx + 1} (${widthMm}×${heightMm} mm)`,
-    minX,
-    minY,
-    maxX,
-    maxY,
+    minX: finalMinX,
+    minY: finalMinY,
+    maxX: finalMaxX,
+    maxY: finalMaxY,
     widthPt,
     heightPt,
     widthMm,
@@ -805,12 +928,52 @@ function updateSpotModeButtonText() {
     : 'Vista Canal: Tinta Roja';
 }
 
-function setZoom(newZoom) {
+function zoomAtPoint(newZoom, clientX, clientY) {
   const canvas = document.getElementById('previewCanvas');
-  state.zoom = Math.max(0.1, Math.min(16, newZoom));
+  const canvasWrapper = document.getElementById('canvasWrapper');
+  const vp = document.getElementById('canvasViewport');
+  if (!canvas || !canvas.width || !canvas.height) return;
+
+  const oldZoom = state.zoom;
+  const clampedZoom = Math.max(0.1, Math.min(16, newZoom));
+  if (Math.abs(clampedZoom - oldZoom) < 0.0001) return;
+
+  let deltaX = 0;
+  let deltaY = 0;
+
+  if (vp && canvasWrapper) {
+    const vpRect = vp.getBoundingClientRect();
+    const cx = clientX !== undefined ? clientX : (vpRect.left + vpRect.width / 2);
+    const cy = clientY !== undefined ? clientY : (vpRect.top + vpRect.height / 2);
+
+    const wrapperRect = canvasWrapper.getBoundingClientRect();
+    const targetX = cx - wrapperRect.left;
+    const targetY = cy - wrapperRect.top;
+
+    const ratio = clampedZoom / oldZoom;
+    deltaX = (targetX * ratio) - targetX;
+    deltaY = (targetY * ratio) - targetY;
+  }
+
+  state.zoom = clampedZoom;
   canvas.style.width = `${Math.round(canvas.width * state.zoom)}px`;
   canvas.style.height = `${Math.round(canvas.height * state.zoom)}px`;
   document.getElementById('zoomLabel').textContent = `${Math.round(state.zoom * 100)}%`;
+
+  if (vp && (deltaX !== 0 || deltaY !== 0)) {
+    vp.scrollLeft += deltaX;
+    vp.scrollTop += deltaY;
+  }
+}
+
+function setZoom(newZoom) {
+  const vp = document.getElementById('canvasViewport');
+  if (vp) {
+    const vpRect = vp.getBoundingClientRect();
+    zoomAtPoint(newZoom, vpRect.left + vpRect.width / 2, vpRect.top + vpRect.height / 2);
+  } else {
+    zoomAtPoint(newZoom);
+  }
 }
 
 function fitCanvasToViewport() {
@@ -821,6 +984,10 @@ function fitCanvasToViewport() {
   const availH = Math.max(100, vp.clientHeight - 60);
   const z = Math.min(availW / canvas.width, availH / canvas.height);
   setZoom(z);
+  if (vp) {
+    vp.scrollLeft = 0;
+    vp.scrollTop = 0;
+  }
 }
 
 // ============================================================================

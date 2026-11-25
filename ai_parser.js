@@ -186,6 +186,9 @@ window.AiParser = {
     let uDepth = 0;
     let starUDepth = 0;
     let curElem = null;
+    let isClipPath = false;
+    let activeClip = null;
+    const gstateStack = [];
 
     // Estado gráfico actual de PostScript
     let fillColor = { c: 0, m: 0, y: 0, k: 1 };
@@ -209,31 +212,74 @@ window.AiParser = {
           maxY: -Infinity,
           shapes: [], // { subpaths, fillColor, strokeColor, strokeWidth, fillRule, doFill, doStroke, gradient }
           raster: null,
-          isBgRect: false
+          isBgRect: false,
+          clip: activeClip ? { ...activeClip } : null
         };
       }
     };
 
     const addCoordToElemBBox = (el, x, y) => {
+      if (activeClip) {
+        x = Math.max(activeClip.minX, Math.min(activeClip.maxX, x));
+        y = Math.max(activeClip.minY, Math.min(activeClip.maxY, y));
+      }
       if (x < el.minX) el.minX = x;
       if (x > el.maxX) el.maxX = x;
       if (y < el.minY) el.minY = y;
       if (y > el.maxY) el.maxY = y;
     };
 
+    const recalcElemBBox = (el) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      if (el.raster) {
+        if (el.raster.minX < minX) minX = el.raster.minX;
+        if (el.raster.maxX > maxX) maxX = el.raster.maxX;
+        if (el.raster.minY < minY) minY = el.raster.minY;
+        if (el.raster.maxY > maxY) maxY = el.raster.maxY;
+      }
+      if (el.shapes) {
+        for (const sh of el.shapes) {
+          for (const sp of sh.subpaths) {
+            for (const pt of sp.pts) {
+              let px = pt.x !== undefined ? pt.x : pt.x1;
+              let py = pt.y !== undefined ? pt.y : pt.y1;
+              if (sh.clip) {
+                px = Math.max(sh.clip.minX, Math.min(sh.clip.maxX, px));
+                py = Math.max(sh.clip.minY, Math.min(sh.clip.maxY, py));
+              }
+              if (px < minX) minX = px;
+              if (px > maxX) maxX = px;
+              if (py < minY) minY = py;
+              if (py > maxY) maxY = py;
+            }
+          }
+        }
+      }
+      if (minX <= maxX && minY <= maxY) {
+        el.minX = minX;
+        el.maxX = maxX;
+        el.minY = minY;
+        el.maxY = maxY;
+      }
+    };
+
     const flushTopElementIfRoot = () => {
       if (uDepth === 0 && starUDepth === 0 && curElem) {
+        recalcElemBBox(curElem);
         if (curElem.minX <= curElem.maxX && (curElem.shapes.length > 0 || curElem.raster)) {
           curElem.widthPt = curElem.maxX - curElem.minX;
           curElem.heightPt = curElem.maxY - curElem.minY;
           curElem.widthMm = +(curElem.widthPt * 25.4 / 72).toFixed(2);
           curElem.heightMm = +(curElem.heightPt * 25.4 / 72).toFixed(2);
-          // Detectar si es una placa/hoja de fondo simple (un único trazado grande > 100mm x 100mm)
+          // Detectar si es una placa/hoja de fondo simple (un único trazado grande o franja larga > 150mm)
           if (
             curElem.type === 'Path' &&
             curElem.shapes.length === 1 &&
-            curElem.widthMm >= 100 &&
-            curElem.heightMm >= 100
+            (
+              (curElem.widthMm >= 100 && curElem.heightMm >= 100) ||
+              (curElem.widthMm >= 150 && curElem.heightMm >= 15) ||
+              (curElem.heightMm >= 150 && curElem.widthMm >= 15)
+            )
           ) {
             curElem.isBgRect = true;
             curElem.name = `Fondo / Hoja (${curElem.widthMm}×${curElem.heightMm} mm)`;
@@ -290,14 +336,24 @@ window.AiParser = {
             const alphaCh = parseInt(mMatch[6], 10);
 
             const a = mtx[0], b = mtx[1], c = mtx[2], d = mtx[3], tx = mtx[4], ty = mtx[5];
-            const minX = Math.min(tx, tx + a * rw);
-            const maxX = Math.max(tx, tx + a * rw);
-            const minY = Math.min(ty - Math.abs(d) * rh, ty);
-            const maxY = Math.max(ty - Math.abs(d) * rh, ty);
+            const origMinX = Math.min(tx, tx + a * rw);
+            const origMaxX = Math.max(tx, tx + a * rw);
+            const origMinY = Math.min(ty - Math.abs(d) * rh, ty);
+            const origMaxY = Math.max(ty - Math.abs(d) * rh, ty);
+
+            let minX = origMinX;
+            let maxX = origMaxX;
+            let minY = origMinY;
+            let maxY = origMaxY;
+
+            if (activeClip) {
+              minX = Math.max(minX, activeClip.minX);
+              maxX = Math.min(maxX, activeClip.maxX);
+              minY = Math.max(minY, activeClip.minY);
+              maxY = Math.max(maxY, activeClip.maxY);
+            }
 
             ensureTopElement('Raster', rName);
-            addCoordToElemBBox(curElem, minX, minY);
-            addCoordToElemBBox(curElem, maxX, maxY);
             curElem.name = rName;
             curElem.raster = {
               psBytes,
@@ -308,8 +364,12 @@ window.AiParser = {
               numCh,
               alphaCh,
               matrix: { a, b, c, d, tx, ty },
-              minX, minY, maxX, maxY
+              origMinX, origMaxX, origMinY, origMaxY,
+              minX, minY, maxX, maxY,
+              clip: activeClip ? { ...activeClip } : null
             };
+            addCoordToElemBBox(curElem, minX, minY);
+            addCoordToElemBBox(curElem, maxX, maxY);
             flushTopElementIfRoot();
           }
         }
@@ -344,6 +404,24 @@ window.AiParser = {
 
       const line = this.asciiFromBuf(psBytes, lineStart, lineEnd).trim();
       if (!line) continue;
+
+      if (line === 'q') {
+        gstateStack.push({
+          activeClip: activeClip ? {
+            minX: activeClip.minX,
+            minY: activeClip.minY,
+            maxX: activeClip.maxX,
+            maxY: activeClip.maxY,
+            subpaths: activeClip.subpaths
+          } : null
+        });
+        continue;
+      }
+      if (line === 'Q') {
+        const restored = gstateStack.pop();
+        activeClip = restored ? restored.activeClip : null;
+        continue;
+      }
 
       if (line === 'u') {
         if (uDepth === 0 && starUDepth === 0) {
@@ -381,7 +459,8 @@ window.AiParser = {
             fillRule: lastShape.fillRule,
             doFill: lastShape.doFill,
             doStroke: lastShape.doStroke,
-            gradient: lastShape.gradient
+            gradient: lastShape.gradient,
+            clip: activeClip ? { ...activeClip } : null
           });
         }
         compoundPaths = null;
@@ -390,6 +469,9 @@ window.AiParser = {
       }
 
       const tokens = line.split(/\s+/);
+      if (tokens.includes('W') || tokens.includes('W*')) {
+        isClipPath = true;
+      }
       const op = tokens[tokens.length - 1];
 
       if (op === 'm' && tokens.length >= 3) {
@@ -518,8 +600,15 @@ window.AiParser = {
           parseFloat(tokens[2]), parseFloat(tokens[3]),
           parseFloat(tokens[4]), parseFloat(tokens[5])
         ];
-      } else if (op === 'f' || op === 'F' || op === 's' || op === 'S' || op === 'b' || op === 'B' || op === 'n' || op === 'N') {
-        const isClosed = (op === 'f' || op === 's' || op === 'b' || op === 'n');
+      } else if (op === 'h' || op === 'H') {
+        if (curPts.length > 0) {
+          curSubpaths.push({ pts: curPts, closed: true });
+          curPts = [];
+        }
+      } else if (op === 'W' || op === 'W*') {
+        isClipPath = true;
+      } else if (op === 'f' || op === 'F' || op === 's' || op === 'S' || op === 'b' || op === 'B' || op === 'Bb' || op === 'bb' || op === 'n' || op === 'N') {
+        const isClosed = (op === 'f' || op === 's' || op === 'b' || op === 'Bb' || op === 'bb' || op === 'n');
         if (curPts.length > 0) {
           curSubpaths.push({ pts: curPts, closed: isClosed });
           curPts = [];
@@ -532,9 +621,10 @@ window.AiParser = {
               strokeColor: { ...strokeColor },
               strokeWidth,
               fillRule,
-              doFill: (op === 'f' || op === 'F' || op === 'b' || op === 'B'),
-              doStroke: (op === 's' || op === 'S' || op === 'b' || op === 'B'),
-              gradient: activeGradient ? { ...activeGradient } : null
+              doFill: (op === 'f' || op === 'F' || op === 'b' || op === 'B' || op === 'Bb' || op === 'bb'),
+              doStroke: (op === 's' || op === 'S' || op === 'b' || op === 'B' || op === 'Bb' || op === 'bb'),
+              gradient: activeGradient ? { ...activeGradient } : null,
+              clip: activeClip ? { ...activeClip } : null
             };
             if (starUDepth > 0 && compoundPaths) {
               compoundPaths.push(shapeObj);
@@ -546,6 +636,54 @@ window.AiParser = {
           if (uDepth === 0 && starUDepth === 0 && op !== 'f') {
             flushTopElementIfRoot();
           } else if (uDepth === 0 && starUDepth === 0 && op === 'f' && !activeGradient) {
+            flushTopElementIfRoot();
+          }
+        } else {
+          // op === 'n' || op === 'N': newpath / descarte de trazado (ej. máscara de corte)
+          if (isClipPath && curSubpaths.length > 0) {
+            let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+            for (const sp of curSubpaths) {
+              for (const pt of sp.pts) {
+                if (pt.x < cMinX) cMinX = pt.x;
+                if (pt.x > cMaxX) cMaxX = pt.x;
+                if (pt.y < cMinY) cMinY = pt.y;
+                if (pt.y > cMaxY) cMaxY = pt.y;
+              }
+            }
+            if (cMinX <= cMaxX && cMinY <= cMaxY) {
+              const clipObj = {
+                minX: cMinX,
+                minY: cMinY,
+                maxX: cMaxX,
+                maxY: cMaxY,
+                subpaths: curSubpaths.map(sp => ({ pts: sp.pts.map(p => ({ ...p })), closed: sp.closed }))
+              };
+              activeClip = clipObj;
+              // Si el elemento actual ya tenía un raster incrustado en este bloque (antes de W n),
+              // asociarle la máscara y recortar su bounding box visible
+              if (curElem && curElem.raster && !curElem.raster.clip) {
+                curElem.raster.clip = clipObj;
+                const origMinX = curElem.raster.origMinX !== undefined ? curElem.raster.origMinX : curElem.raster.minX;
+                const origMaxX = curElem.raster.origMaxX !== undefined ? curElem.raster.origMaxX : curElem.raster.maxX;
+                const origMinY = curElem.raster.origMinY !== undefined ? curElem.raster.origMinY : curElem.raster.minY;
+                const origMaxY = curElem.raster.origMaxY !== undefined ? curElem.raster.origMaxY : curElem.raster.maxY;
+                curElem.raster.minX = Math.max(origMinX, cMinX);
+                curElem.raster.maxX = Math.min(origMaxX, cMaxX);
+                curElem.raster.minY = Math.max(origMinY, cMinY);
+                curElem.raster.maxY = Math.min(origMaxY, cMaxY);
+              }
+              // También asociar el recorte a formas vectoriales creadas dentro de este mismo bloque
+              if (curElem && curElem.shapes && curElem.shapes.length > 0) {
+                for (const sh of curElem.shapes) {
+                  if (!sh.clip) sh.clip = clipObj;
+                }
+              }
+            }
+            isClipPath = false;
+          }
+          // Siempre limpiar curSubpaths para que el trazado de recorte no contamine la siguiente figura
+          curSubpaths = [];
+          if (uDepth === 0 && starUDepth === 0) {
             flushTopElementIfRoot();
           }
         }
@@ -800,7 +938,13 @@ window.AiParser = {
 
     // Si el diseño es un único Raster incrustado con datos CMYK+Alfa nativos,
     // muestrear directamente los bytes CMYK+Alfa originales de Illustrator para máxima fidelidad!
-    if (design.elements.length === 1 && design.elements[0].raster) {
+    // Solo si es un raster puro sin máscara de recorte y sin trazados vectoriales asociados
+    if (
+      design.elements.length === 1 &&
+      design.elements[0].raster &&
+      !design.elements[0].raster.clip &&
+      (!design.elements[0].shapes || design.elements[0].shapes.length === 0)
+    ) {
       const r = design.elements[0].raster;
       const cmykUnrot = new Uint8Array(unrotW * unrotH * 4);
       const alphaUnrot = new Uint8Array(unrotW * unrotH);
@@ -812,10 +956,22 @@ window.AiParser = {
       const alphaStart = r.dataStart + srcW * srcH * r.numCh;
       const ps = r.psBytes;
 
+      const rSpanX = Math.max(0.001, r.maxX - r.minX);
+      const rSpanY = Math.max(0.001, r.maxY - r.minY);
+      const dSpanX = Math.max(0.001, design.maxX - design.minX);
+      const dSpanY = Math.max(0.001, design.maxY - design.minY);
+
       for (let y = 0; y < baseH; y++) {
-        const sy = Math.min(srcH - 1, Math.max(0, Math.floor((y / baseH) * srcH)));
+        // En coordenadas PostScript Y va hacia arriba (y=0 es design.maxY, y=baseH es design.minY)
+        const ptY = design.maxY - (y + 0.5) * (dSpanY / baseH);
+        const sy = Math.floor(((r.maxY - ptY) / rSpanY) * srcH);
+        if (sy < 0 || sy >= srcH) continue;
+
         for (let x = 0; x < baseW; x++) {
-          const sx = Math.min(srcW - 1, Math.max(0, Math.floor((x / baseW) * srcW)));
+          const ptX = design.minX + (x + 0.5) * (dSpanX / baseW);
+          const sx = Math.floor(((ptX - r.minX) / rSpanX) * srcW);
+          if (sx < 0 || sx >= srcW) continue;
+
           const srcIdx = sy * srcW + sx;
           const dstIdx = (y + paddingPx) * unrotW + (x + paddingPx);
 
@@ -951,6 +1107,24 @@ window.AiParser = {
   },
 
   drawVectorShapeOnCanvas(ctx, sh, tx, ty, scale) {
+    let hasClip = false;
+    if (sh.clip && sh.clip.subpaths && sh.clip.subpaths.length > 0) {
+      ctx.save();
+      hasClip = true;
+      ctx.beginPath();
+      for (const sp of sh.clip.subpaths) {
+        for (let i = 0; i < sp.pts.length; i++) {
+          const pt = sp.pts[i];
+          const px = tx(pt.x);
+          const py = ty(pt.y);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        if (sp.closed) ctx.closePath();
+      }
+      ctx.clip();
+    }
+
     ctx.beginPath();
     for (const sp of sh.subpaths) {
       for (const pt of sp.pts) {
@@ -1024,6 +1198,10 @@ window.AiParser = {
       ctx.lineWidth = Math.max(0.5, sh.strokeWidth * scale);
       ctx.stroke();
     }
+
+    if (hasClip) {
+      ctx.restore();
+    }
   },
 
   drawRasterElementOnCanvas(ctx, r, tx, ty, scale) {
@@ -1056,10 +1234,34 @@ window.AiParser = {
       r._cachedCanvas = rc;
     }
 
-    const x = tx(r.minX);
-    const y = ty(r.maxY);
-    const w = (r.maxX - r.minX) * scale;
-    const h = (r.maxY - r.minY) * scale;
-    ctx.drawImage(r._cachedCanvas, x, y, w, h);
+    const origMinX = r.origMinX !== undefined ? r.origMinX : r.minX;
+    const origMaxX = r.origMaxX !== undefined ? r.origMaxX : r.maxX;
+    const origMinY = r.origMinY !== undefined ? r.origMinY : r.minY;
+    const origMaxY = r.origMaxY !== undefined ? r.origMaxY : r.maxY;
+
+    const x = tx(origMinX);
+    const y = ty(origMaxY);
+    const w = (origMaxX - origMinX) * scale;
+    const h = (origMaxY - origMinY) * scale;
+
+    if (r.clip && r.clip.subpaths && r.clip.subpaths.length > 0) {
+      ctx.save();
+      ctx.beginPath();
+      for (const sp of r.clip.subpaths) {
+        for (let i = 0; i < sp.pts.length; i++) {
+          const pt = sp.pts[i];
+          const px = tx(pt.x);
+          const py = ty(pt.y);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        if (sp.closed) ctx.closePath();
+      }
+      ctx.clip();
+      ctx.drawImage(r._cachedCanvas, x, y, w, h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(r._cachedCanvas, x, y, w, h);
+    }
   }
 };

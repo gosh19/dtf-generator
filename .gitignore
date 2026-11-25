@@ -1,6 +1,8 @@
 # Logs and temporary files
 scratch/
 *.log
+*.old
+.dtf_version
 
 # OS generated files
 Thumbs.db
